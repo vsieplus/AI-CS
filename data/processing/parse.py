@@ -9,7 +9,7 @@ from collections import OrderedDict
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
 bool_parser = lambda x: True if x.strip() == 'YES' else False
-str_parser = lambda x: x.strip().lower() if x.strip() else None
+str_parser = lambda x: x.strip().lower()
 float_parser = lambda x: float(x.strip()) if x.strip() else None
 
 def unsupported_parser(attr_name):
@@ -65,6 +65,22 @@ def bpms_parser(x):
 
     return bpms_cleaned
 
+def stops_parser(x):
+    stops = list_parser(kv_parser(float_parser, float_parser))(x)
+
+    beat_last = -1.0
+    for beat, stop_len in stops:
+        if beat == None or stop_len == None:
+            raise ValueError('Bad stop formatting')
+        if beat < 0.0:
+            raise ValueError('Bad beat in stop')
+        if stop_len == 0.0:
+            continue
+        if beat <= beat_last:
+            raise ValueError('Nonascending list of beats in stops')
+        beat_last = beat
+    return stops
+
 # scroll 'speeds' format: (beat=multiplier=duration=0, ...)
 def speeds_parser(x):
     # really only need the beat + speed multiplier
@@ -84,18 +100,14 @@ def notes_parser(x, chart_type = 'ssc'):
 
     if(chart_type not in ['ucs', 'ssc']):
         return
-
-    pattern = r'([^;]*)'
-    notes = re.findall(pattern, x)
-    if len(notes_split) != 1:
-        raise ValueError('Bad formatting of notes section')
     
     # parse/clean measures
-    measures = [measure.splitlines() for measure in notes.split(',')]
+    measures = [measure.splitlines() for measure in x.split(',')]
     measures_clean = []
     for measure in measures:
         measure_clean = filter(lambda pulse: not pulse.strip().startswith('//') and len(pulse.strip()) > 0, measure)
-        measures_clean.append(measure_clean)
+        measures_clean.append(list(measure_clean))
+
     if len(measures_clean) > 0 and len(measures_clean[-1]) == 0:
         measures_clean = measures_clean[:-1]
 
@@ -123,7 +135,10 @@ ATTR_NAME_TO_PARSER = {
     'credit': str_parser,
     'banner': str_parser,
     'background': str_parser,
-    'previewid': str_parser,
+    'previewvid': str_parser,
+    'editable': bool_parser,
+    'version': str_parser,
+    'origin': str_parser,
     'jacket': str_parser,
     'cdimage': str_parser,
     'discimage': str_parser,
@@ -138,14 +153,15 @@ ATTR_NAME_TO_PARSER = {
     'songcategory': str_parser,
     'volume': int_parser,
     'displaybpm': float_parser,
-    'stops': unsupported_parser('stops'),
-    'delays': unsupported_parser('delays'),
-    'warps': unsupported_parser('warps'),
+    'stops': stops_parser,
+    'delays': str_parser,
+    'warps': str_parser,
     'timesignatures': list_parser(kv_parser(float_parser, kv_parser(int_parser, int_parser))),
     'tickcounts': list_parser(kv_parser(float_parser, int_parser)),
     'labels': list_parser(kv_parser(float_parser, str_parser)),
     'lastsecondhint': float_parser,
-    'bgchanges': unsupported_parser('bgchanges'),
+    'bgchanges': str_parser,
+    'fgchanges': str_parser,
     'keysounds': str_parser,
     'attacks': str_parser,
     
@@ -165,21 +181,22 @@ ATTR_NAME_TO_PARSER = {
     # bpms used in chart stored as (beat=bpm, ...)
     'bpms': bpms_parser,
 
-    'combos': list_parser(kv_parser(float_parser, float_parser)),
+    'combos': str_parser,
     'speeds': speeds_parser,
     
     # scroll speeds for holds?
     'scrolls': list_parser(kv_parser(float_parser, float_parser)),
 
-    'fakes': unsupported_parser('fakes'),
+    'fakes': str_parser,
     'notes': unsupported_parser('notes'),       # handle manually
 }
 
 # distinguish song and chart attributes
 ATTR_SONG = []
-ATTR_CHART = ['notedata', 'chartname', 'stepstype', 'description', 'chartstyle',
-    'difficulty', 'meter', 'radarvalues', 'credit', 'patchinfo', 'offset', 
-    'bpms', 'tickcounts', 'combos', 'speeds', 'scrolls', 'fakes', 'labels', 'notes']
+ATTR_CHART = ['notedata', 'chartname', 'stepstype', 'description', 'chartstyle', 
+    'stops', 'warps', 'delays', 'difficulty', 'meter', 'radarvalues', 'credit',
+    'patchinfo', 'offset', 'displaybpm', 'bpms', 'tickcounts', 'combos', 'speeds',
+    'scrolls', 'fakes', 'labels', 'attacks', 'timesignatures', 'notes']
 ATTR_CHART_REQUIRED = ['stepstype', 'description', 'meter', 'credit', 'offset',
     'bpms', 'speeds', 'notes']
 
@@ -187,7 +204,7 @@ ATTR_CHART_REQUIRED = ['stepstype', 'description', 'meter', 'credit', 'offset',
 ATTR_NOTES = 'notes'
 
 def parse_chart_txt(chart_txt, chart_type):
-    attrs = {attr_name: [] for attr_name in ATTR_MULTI}
+    attrs = {}
 
     # parse each attribute in the txt
     for attr_name, attr_val in re.findall(r'#([^:]*):([^;]*);', chart_txt):
@@ -210,18 +227,20 @@ def parse_chart_txt(chart_txt, chart_type):
             else:
                 raise ValueError('Song Attribute {} defined multiple times'.format(attr_name))
         elif attr_name in ATTR_CHART:
+
             if attr_name not in ATTR_CHART_REQUIRED:
                 continue
 
-            if 'charts' in attrs:
+            if 'charts' in attrs and len(attrs['charts']) > 0:
                 latest_chart = attrs['charts'][-1]
                 latest_chart_attr = next(reversed(latest_chart))
 
                 # check if last chart finished
                 if latest_chart_attr == 'notes':
-                    # start new chart
-                    next_chart = OrderedDict([(attr_name, attr_val_parsed)])
-                    attrs['charts'].append(next_chart)
+                    # start new chart if applicable
+                    if attr_name == 'stepstype':
+                        next_chart = OrderedDict([(attr_name, attr_val_parsed)])
+                        attrs['charts'].append(next_chart)
                 else:
                     # skip if a UCS chart in an ssc
                     if attr_name == 'description' and len(re.findall('ucs', attr_val_parsed)) > 0:
@@ -239,15 +258,11 @@ def parse_chart_txt(chart_txt, chart_type):
             else:                
                 attrs['charts'] = []
 
-                first_chart = OrderedDict([(attr_name, attr_val_parsed)])
-                attrs['charts'].append(first_chart)
+                if attr_name == 'stepstype':
+                    first_chart = OrderedDict([(attr_name, attr_val_parsed)])
+                    attrs['charts'].append(first_chart)
 
         else:
             attrs[attr_name] = attr_val_parsed
-
-    # remove empty attributes
-    for attr_name, attr_val in attrs.items():
-        if attr_val == None or attr_val == []:
-            del attrs[attr_name]
 
     return attrs

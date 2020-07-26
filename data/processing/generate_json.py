@@ -65,18 +65,15 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
         # parse chart metadata from the text for the given chart type
         try:
             chart_attrs = parse.parse_chart_txt(chart_txt, chart_type)
-        except Error as e:
-            logging.error('{} in\n{}'.format(e, pack_chart_file))
-            continue
         except Exception as e:
-            logging.critical('Unhandled parse exception {}'.format(traceback.format_exc()))
+            logging.error('{} in\n{}'.format(e, pack_chart_file))
             raise e
 
         # store music path
         root = os.path.abspath(os.path.join(pack_chart_file, '..'))
         music_fp = os.path.join(root, chart_attrs.get('music', ''))
 
-        if 'music' not in sm_attrs or not os.path.exists(music_fp):
+        if 'music' not in chart_attrs or not os.path.exists(music_fp):
             try:
                 music_fp = search_for_music(os.path.splitext(chart_filename)[0], root)
             except ValueError as e:
@@ -90,16 +87,14 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
             ('pack', pack_name_clean),
             ('title', chart_attrs.get('title')),
             ('artist', chart_attrs.get('artist')),
-            ('genre', chart_attrs.get('genre'))
+            ('genre', chart_attrs.get('genre')),
             ('songtype', chart_attrs.get('songtype')),      # arcade/remix/shortcut/...
-            ('offset', chart_attrs.get('offset')),
-            ('bpms', chart_attrs.get('bpms')),
             ('charts', chart_attrs.get('charts'))
         ])
 
         with open(out_json_path, 'w') as out_f:
             try:
-                out_f.write(json.dumps(out_json, indent=4))
+                out_f.write(json.dumps(out_json))
             except UnicodeDecodeError:
                 logging.error('Unicode error in {}'.format(pack_chart_file))
                 continue
