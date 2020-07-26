@@ -5,10 +5,12 @@ import json
 import argparse
 import os
 import logging
+import glob
 
 from collections import OrderedDict
 from pathlib import Path
 
+import parse
 import util
 
 ABS_PATH = Path(__file__).parent.absolute()
@@ -22,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--data_dir', type=str, 
         help='directory of packs (organized like stepf2/p1 songs folder)',
         default=str(ABS_PATH) + '/../dataset/raw')
+    parser.add_argument('--choose', type=bool, help='select specific packs', default=False)
     
     return parser.parse_args()
 
@@ -111,9 +114,9 @@ def main():
         os.mkdir(OUT_PATH)
 
     # retrieve pack names, 
-    packs_path = Path(args.data_dir)
-    pack_names = [pack for pack in packs_path.iterdir() if pack.is_dir()]
-
+    packs_path = args.data_dir
+    pack_names = util.get_subdirs(packs_path, args.choose)
+    
     pack_names_clean = set()
 
     for pack_name in pack_names:
