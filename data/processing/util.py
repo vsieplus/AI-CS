@@ -1,4 +1,6 @@
 # from https://github.com/chrisdonahue/ddc/blob/master/dataset/...
+import os
+
 def ez_name(x):
     x = ''.join(x.strip().split())
     x_clean = []
@@ -9,6 +11,15 @@ def ez_name(x):
             x_clean.append('_')
     return ''.join(x_clean)
 
+def get_subdirs(root, choose=False):
+    subdir_names = sorted(filter(lambda x: os.path.isdir(os.path.join(root, x)), os.listdir(root)))
+    if choose:
+        for i, subdir_name in enumerate(subdir_names):
+            print('{}: {}'.format(i, subdir_name))
+        subdir_idxs = [int(x) for x in input('Which subdir(s)? ').split(',')]
+        subdir_names = [subdir_names[i] for i in subdir_idxs]
+    return subdir_names
+
 # below adapted from "/smdataset/abstime.py
 _EPSILON = 1e-6
 
@@ -18,7 +29,7 @@ def bpm_to_spb(bpm):
 def calc_segment_lengths(bpms):
     assert len(bpms) > 0
     segment_lengths = []
-    for i in xrange(len(bpms) - 1):
+    for i in range(len(bpms) - 1):
         spb = bpm_to_spb(bpms[i][1])
         segment_lengths.append(spb * (bpms[i + 1][0] - bpms[i][0]))
     return segment_lengths
