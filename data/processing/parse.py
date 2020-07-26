@@ -65,11 +65,19 @@ def bpms_parser(x):
 
     return bpms_cleaned
 
-# 'speeds' similar to bpms but diff format (beat=multiplier=duration=0, ...)
+# scroll 'speeds' format: (beat=multiplier=duration=0, ...)
 def speeds_parser(x):
-    # really only need beat + speed multiplier
-    speeds = 
-        list_parser(kv_parser(kv_parser(kv_parser(float_parser, float_parser), float_parser), float_parser))(x)
+    # really only need the beat + speed multiplier
+    speeds = list_parser(kv_parser(float_parser, kv_parser(float_parser, kv_parser(float_parser, float_parser))))(x)
+
+    speeds_clean = []
+    for speed in speeds:
+        beat = speed[0]
+        mult = speed[1][0]
+
+        speeds_clean.append((beat, mult))
+
+    return speeds_clean
 
 # represent notes as list of lists. sublist ~ measure, sub-elem ~ beat
 def notes_parser(x, chart_type = 'ssc'):
@@ -129,8 +137,8 @@ ATTR_NAME_TO_PARSER = {
     'songtype': str_parser,
     'songcategory': str_parser,
     'volume': int_parser,
-    'displaybpm': float_parser
-    'stops': stops_parser,
+    'displaybpm': float_parser,
+    'stops': unsupported_parser('stops'),
     'delays': unsupported_parser('delays'),
     'warps': unsupported_parser('warps'),
     'timesignatures': list_parser(kv_parser(float_parser, kv_parser(int_parser, int_parser))),
@@ -210,7 +218,7 @@ def parse_chart_txt(chart_txt, chart_type):
                 latest_chart_attr = next(reversed(latest_chart))
 
                 # check if last chart finished
-                if latest_chart_attr = 'notes':
+                if latest_chart_attr == 'notes':
                     # start new chart
                     next_chart = OrderedDict([(attr_name, attr_val_parsed)])
                     attrs['charts'].append(next_chart)

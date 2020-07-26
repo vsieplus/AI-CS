@@ -11,7 +11,7 @@ from pathlib import Path
 
 import util
 
-ABS_PATH = pathlib.Path(__file__).parent.absolute()
+ABS_PATH = Path(__file__).parent.absolute()
 OUT_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
 
 CHART_TYPES = ['ucs', 'ssc']
@@ -34,7 +34,7 @@ def search_for_music(chart_filename, root):
             music_names.append(filename)
 
     if len(music_names) == 0:
-        raise ValueError('no audio file found for {}'.fomrat(chart_filename))
+        raise ValueError('no audio file found for {}'.format(chart_filename))
 
     return music_names[0]
 
@@ -51,8 +51,8 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
     chart_files_clean = set()
     for pack_chart_file in pack_chart_files:
         chart_filename = os.path.split(os.path.split(pack_chart_file)[0])[1]
-        chart_filename_clean = util.ezname(chart_filename)
-        if chart_filename_clean in chart_files_clean
+        chart_filename_clean = util.ez_name(chart_filename)
+        if chart_filename_clean in chart_files_clean:
             raise ValueError('song name conflict: {}'.format(chart_filename_clean))
         chart_files_clean.add(chart_filename_clean)
 
@@ -80,7 +80,7 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
                 continue
 
         # constrcut json object to save with important fields
-        out_json = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
+        out_json_path = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
         out_json = OrderedDict([
             ('chart_fp', os.path.abspath(pack_chart_file)),
             ('music_fp', os.path.abspath(music_fp)),
@@ -94,7 +94,7 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
             ('charts', chart_attrs.get('charts'))
         ])
 
-        with open(out_json_fp, 'w') as out_f:
+        with open(out_json_path, 'w') as out_f:
             try:
                 out_f.write(json.dumps(out_json, indent=4))
             except UnicodeDecodeError:
@@ -102,8 +102,8 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
                 continue
 
             print('Parsed {} - {}: {} charts'.format(pack_name_clean, 
-                chart_filename, len(out_json['charts']))
-
+                chart_filename, len(out_json['charts'])))
+    
 def main():
     args = parse_args()
 
@@ -117,7 +117,7 @@ def main():
     pack_names_clean = set()
 
     for pack_name in pack_names:
-        pack_name_clean = util.ezname(pack_name)
+        pack_name_clean = util.ez_name(pack_name)
         if pack_name_clean in pack_names_clean:
             raise ValueError('pack name conflict: {}'.format(pack_name_clean))
         pack_names_clean.add(pack_name_clean)
