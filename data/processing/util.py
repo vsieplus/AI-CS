@@ -16,7 +16,7 @@ def get_subdirs(root, choose=False):
     if choose:
         for i, subdir_name in enumerate(subdir_names):
             print('{}: {}'.format(i, subdir_name))
-        subdir_idxs = [int(x) for x in input('Which subdir(s)? ').split(',')]
+        subdir_idxs = [int(x) for x in input('Which subdir(s)? [separate choices by commas] ').split(',')]
         subdir_names = [subdir_names[i] for i in subdir_idxs]
     return subdir_names
 
@@ -35,19 +35,32 @@ def calc_segment_lengths(bpms):
     return segment_lengths
 
 # computes the absolute time for a particular beat
-def calc_abs_for_beat(offset, bpms, segment_lengths, beat):
+def calc_abs_for_beat(offset, bpms, stops, segment_lengths, beat):
     bpm_idx = 0
     while bpm_idx < len(bpms) and beat + _EPSILON > bpms[bpm_idx][0]:
         bpm_idx += 1
     bpm_idx -= 1
 
+    stop_len_cumulative = 0.0
+    for stop_beat, stop_len in stops:
+        diff = beat - stop_beat
+        # We are at this stop which should not count to its timing
+        if abs(diff) < _EPSILON:
+            break
+        # We are before this stop
+        elif diff < 0:
+            break
+        # We are above this stop
+        else:
+            stop_len_cumulative += stop_len
+
     full_segment_total = sum(segment_lengths[:bpm_idx])
     partial_segment_spb = bpm_to_spb(bpms[bpm_idx][1])
     partial_segment = partial_segment_spb * (beat - bpms[bpm_idx][0])
 
-    return full_segment_total + partial_segment - offset
+    return full_segment_total + partial_segment - offset + stop_len_cumulative
 
-def calc_note_beats_and_abs_times(offset, bpms, note_data):
+def calc_note_beats_and_abs_times(offset, bpms, stops, note_data):
     segment_lengths = calc_segment_lengths(bpms)
 
     # copy bpms
@@ -65,7 +78,7 @@ def calc_note_beats_and_abs_times(offset, bpms, note_data):
         for i, code in enumerate(measure):
             beat = measure_num * 4.0 + 4.0 * (float(i) / ppm)
             # TODO: This could be much more efficient but is not the bottleneck for the moment.
-            beat_abs = calc_abs_for_beat(offset, bpms, segment_lengths, beat)
+            beat_abs = calc_abs_for_beat(offset, bpms, stops, segment_lengths, beat)
             note_beats_abs_times.append(((measure_num, ppm, i), beat, beat_abs, code))
             beat_times.append(beat_abs)
 

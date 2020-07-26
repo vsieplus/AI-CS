@@ -198,7 +198,7 @@ ATTR_CHART = ['notedata', 'chartname', 'stepstype', 'description', 'chartstyle',
     'patchinfo', 'offset', 'displaybpm', 'bpms', 'tickcounts', 'combos', 'speeds',
     'scrolls', 'fakes', 'labels', 'attacks', 'timesignatures', 'notes']
 ATTR_CHART_REQUIRED = ['stepstype', 'description', 'meter', 'credit', 'offset',
-    'bpms', 'speeds', 'notes']
+    'stops', 'bpms', 'speeds', 'notes']
 
 # attributes with potentially multiple sets (for each of the chart types)
 ATTR_NOTES = 'notes'
@@ -252,7 +252,7 @@ def parse_chart_txt(chart_txt, chart_type):
                     if attr_name == 'notes':
                         attr_val_parsed = util.calc_note_beats_and_abs_times(
                             latest_chart['offset'], latest_chart['bpms'],
-                            attr_val_parsed)
+                            latest_chart['stops'], attr_val_parsed)
                     
                     latest_chart[attr_name] = attr_val_parsed
             else:                
