@@ -25,6 +25,19 @@ def parse_args() -> argparse.Namespace:
     
     return parser.parse_args()
 
+def search_for_music(chart_filename, root):
+    """Try to find a music file for the corresponding chart file"""
+
+    for filename in os.listdir(root):
+        prefix, ext = os.path.splitext(filename)
+        if ext.lower()[1:] in ['mp3', 'ogg']:
+            music_names.append(filename)
+
+    if len(music_names) == 0:
+        raise ValueError('no audio file found for {}'.fomrat(chart_filename))
+
+    return music_names[0]
+
 def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
     """Parses a set of pack's chart files (ucs/ssc)"""
 
@@ -56,8 +69,17 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
             logging.critical('Unhandled parse exception {}'.format(traceback.format_exc()))
             raise e
 
+        # store music path
+        root = os.path.abspath(os.path.join(pack_chart_file, '..'))
+        music_fp = os.path.join(root, chart_attrs.get('music', ''))
 
-        # constrcut json object to save
+        if 'music' not in sm_attrs or not os.path.exists(music_fp):
+            try:
+                music_fp = search_for_music(os.path.splitext(chart_filename)[0], root)
+            except ValueError as e:
+                continue
+
+        # constrcut json object to save with important fields
         out_json = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
         out_json = OrderedDict([
             ('chart_fp', os.path.abspath(pack_chart_file)),
@@ -65,10 +87,11 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type):
             ('pack', pack_name_clean),
             ('title', chart_attrs.get('title')),
             ('artist', chart_attrs.get('artist')),
-            ('offset', offset),
-            ('bpms', []),
-            ('stops', []),
-            ('charts', [])
+            ('genre', chart_attrs.get('genre'))
+            ('songtype', chart_attrs.get('songtype')),      # arcade/remix/shortcut/...
+            ('offset', chart_attrs.get('offset')),
+            ('bpms', chart_attrs.get('bpms')),
+            ('charts', chart_attrs.get('charts'))
         ])
 
         with open(out_json_fp, 'w') as out_f:
