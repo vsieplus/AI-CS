@@ -185,7 +185,7 @@ ATTR_NAME_TO_PARSER = {
     'speeds': speeds_parser,
     
     # scroll speeds for holds?
-    'scrolls': list_parser(kv_parser(float_parser, float_parser)),
+    'scrolls': str_parser,
 
     'fakes': str_parser,
     'notes': unsupported_parser('notes'),       # handle manually
