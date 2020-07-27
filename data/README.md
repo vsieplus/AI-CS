@@ -3,13 +3,12 @@
 This directory contains code for retrieving and processing the data
 to be used to train the models.
 
-| Directory     | Description                                                   |
-|---------------|---------------------------------------------------------------|
-| `dataset/`    | Contains the actual data                                      |
-|   `raw`       | Raw ucs/scc packs                                             |
-|   `json`      | Chart data in json format                                     |
-|   `subsets`   | Metadata representing dataset subsets                         |
-| `processing/` | ssc/ucs file extraction, conversion to json, dataset creation |
+| Directory         | Description                                                   |
+|-------------------|---------------------------------------------------------------|
+| `dataset/raw/`    | Raw ucs/scc packs                                             |
+| `dataset/json/`   | Chart data in json format                                     |
+| `dataset/subsets` | Metadata representing dataset subsets                         |
+| `processing/`     | ssc/ucs file extraction, conversion to json, dataset creation |
 
 ## Dataset info
 
@@ -42,7 +41,8 @@ created by authors **author1** or **author2**, for songs that debuted in either
 prime 2 or fiesta, and are between level 14 and 16. It is possible to specify
 other parameters such as specific songs, chart types, date published, etc...
 
-```python scrape_ucs.py \
+```python
+python scrape_ucs.py \
     --authors author1 author2 \
     --mixes prime2 fiesta \
     --min_level=14 \
