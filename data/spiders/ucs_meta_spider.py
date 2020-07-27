@@ -1,4 +1,4 @@
-# scrape ucs metada from http://www.piugame.com/piu.ucs/ucs.sample/ucs.sample.alltunes.php
+# scrape ucs metada from
 
 import scrapy
 import re
@@ -11,8 +11,6 @@ VERSION_DICT = {
     14: 'nx2', 15: 'nx_absolute', 16: 'fiesta', 17: 'fiesta_ex', 
     18: 'fiesta2', 19: 'prime', 20: 'prime2', 21: 'xx'}
 
-UCS_META_LABELS = ['title', 'artist', 'bpm', 'version']
-
 class UCS_MetaSpider(scrapy.Spider):
     name = 'ucs_meta'
     start_urls = ['http://www.piugame.com/piu.ucs/ucs.sample/ucs.sample.alltunes.php']
@@ -22,7 +20,7 @@ class UCS_MetaSpider(scrapy.Spider):
         ucs_rows = response.xpath('//tr')
 
         ucs_codes = ucs_rows.xpath('.//span[@class="download_cs_number"]/text()').getall()
-        song_names = ucs_rows.xpath('.//span[@class="list_song_title"]/text()').getall()
+        song_names = ucs_rows.xpath('.//span[@class="list_song_title "]/text()').getall()
         song_artists = ucs_rows.xpath('.//span[@class="list_song_artist"]/text()').getall()
         song_artists = [re.sub('/ ', '', artist_str) for artist_str in song_artists]
 
@@ -34,23 +32,32 @@ class UCS_MetaSpider(scrapy.Spider):
         assert(len(versions) == len(bpms) and len(bpms) == len(song_artists) and
             len(song_artists) == len(song_names) and len(song_names) == len(ucs_codes))
 
-        ucs_dict = {}
+        if 'ucs_dict' in response.meta:
+            ucs_dict = response.meta['ucs_dict']
+        else:
+            ucs_dict = {}
+
         for i, code in enumerate(ucs_codes):
-            ucs_metadata = zip(UCS_META_LABELS, song_names[i], song_artists[i],
-                bpms[i], versions[i])
+            ucs_meta = {}
+            ucs_meta['title'] = song_names[i]
+            ucs_meta['artist'] = song_artists[i]
+            ucs_meta['bpms'] = bpms[i]
+            ucs_meta['version'] = versions[i]
 
-            ucs_dict[code] = ucs_metadata
+            ucs_dict[code] = ucs_meta
         
-        yield ucs_dict
-
         page_area = response.xpath('//span[@class="pg"]')
 
         curr_page = int(response.xpath('.//strong[@class="pg_current"]/text()').get())
         next_page = curr_page + 1
-        next_page_link = p.xpath('.//a[contains(@href, "' str(next_page) '")]/@href').get()
+        next_page_link = page_area.xpath('.//a[contains(@href, "' + str(next_page) + '")]/@href').get()
 
         if next_page_link:
-            yield response.follow(next_page_link, self.parse)
+            yield response.follow(next_page_link, callback=self.parse, 
+                meta={**(response.meta), **{'ucs_dict': ucs_dict}})
+        else:
+            yield ucs_dict
+            
 
             
             
