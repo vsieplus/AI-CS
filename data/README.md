@@ -3,12 +3,12 @@
 This directory contains code for retrieving and processing the data
 to be used to train the models.
 
-| Directory         | Description                                                   |
-|-------------------|---------------------------------------------------------------|
-| `dataset/raw/`    | Raw ucs/scc packs                                             |
-| `dataset/json/`   | Chart data in json format                                     |
-| `dataset/subsets` | Metadata representing dataset subsets                         |
-| `processing/`     | ssc/ucs file extraction, conversion to json, dataset creation |
+| Directory          | Description                                                   |
+|--------------------|---------------------------------------------------------------|
+| `dataset/raw/`     | Raw ucs/scc packs                                             |
+| `dataset/json/`    | Chart data in json format                                     |
+| `dataset/subsets/` | Metadata representing dataset subsets                         |
+| `processing/`      | ssc/ucs file extraction, conversion to json, dataset creation |
 
 ## Dataset info
 
@@ -31,9 +31,10 @@ files amounts to effectively a 3-tuple for each
 ## Getting the data
 
 To download the raw data call `./get_stepp1_data.sh`, which downloads the base
-packs as included in STEPF2/P1, aka the step charts from the 'official' game.
-
-`./get_data.sh > dataset/raw`
+packs as included in STEPF2/P1, aka the step charts from the 'official' game. These
+files will be stored under `dataset/raw/`, similar to the pack data layout in stepf2/p1.
+Alternatively, if you already have the packs on your own computer, you may simply copy
+them over (treat `dataset/raw` as the equivalent of the `Songs/` directory).
 
 To download UCS from the official PIU UCS site, you can run `scrape_ucs.py` with
 different options. For instance, calling the below will download all UCS files
@@ -64,7 +65,7 @@ create a custom ucs 'pack' (which it will ask you to name) under `dataset/raw/pa
 To convert 'ssc/ucs' files to usable format, there are several scripts in `processing/`.
 First to extract data from the ssc files and convert to json, you can call
 
-`python processing/generate_json.py > dataset/json`
+`python processing/generate_json.py`
 
 The resulting json files will be located under `dataset/json` according to their
 respective packs. Next to specify a custom subset of charts you can create a
