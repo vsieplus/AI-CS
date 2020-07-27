@@ -42,6 +42,8 @@ def parse_args() -> argparse.Namespace:
     parser.set_defaults(
         json_dir=DEFAULT_JSON_PATH,
         datasets_dir=DEFAULT_DATASETS_PATH,
+        chart_authors=[],
+        chart_difficulties=[],
         choose=True)
     
     return parser.parse_args()
@@ -57,32 +59,12 @@ def display_args(args):
     print('Max. chart difficulty:', args.max_difficulty)
     print('Using chart permutations:', args.permutations)
 
-
-# def filter_songs(sub_fps, song_types, permutations):
-#     if(len(song_types) == 0):
-#         return
-
-#     filtered_fps = []
-#     for fp in sub_fps:
-#         with open(fp, 'r') as f:
-#             sub_json = json.loads(f.read())
-
-#         if sub_json['songtype'] in song_types:
-#             filtered_fps.append(fp)
-    
-#     return filtered_fps
-
 def main():
     args = parse_args()
-    display_args(args)
-
     dataset_name = input('Please enter a name for this dataset: ')
-    dataset_name = util.ez_name(dataset_name)
+    dataset_name = ez_name(dataset_name)
 
-    dataset_metadata = {
-        'dataset_name': dataset_name,
-
-    }
+    display_args(args)
 
     output_dir = os.path.join(args.datasets_dir, dataset_name)
     if not os.path.isdir(output_dir):
@@ -93,6 +75,22 @@ def main():
     assert len(splits) == len(split_names)
 
     pack_names = get_subdirs(args.json_dir, args.choose)
+
+    dataset_metadata = {
+        'dataset_name': dataset_name,
+        'song_types': args.song_types,
+        'mixes': pack_names,
+        'chart_type': args.chart_type,
+        'chart_authors': args.chart_authors,
+        'chart_difficulties': args.chart_difficulties,
+        'min_chart_difficulty': args.min_difficulty,
+        'max_chart_difficulty': args.max_difficulty,
+        'permutations': args.permutations    
+    }
+
+    dataset_json = os.path.join(output_dir, dataset_name + '.json')
+    with open(dataset_json, 'w') as f:
+        f.write(json.dumps(dataset_metadata, indent=4))
 
     for pack_name in pack_names:
         pack_dir = os.path.join(args.json_dir, pack_name)
