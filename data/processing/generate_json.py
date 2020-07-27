@@ -6,35 +6,18 @@ import argparse
 import os
 import logging
 import glob
-import copy
 
 from collections import OrderedDict
 from pathlib import Path
 
 import parse
-from util import get_subdirs, ez_name
+import util
 
 ABS_PATH = Path(__file__).parent.absolute()
 DEFAULT_OUT_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
 
 CHART_TYPES = ['ucs', 'ssc']
 UCS_PACKNAME = 'UCS'
-
-CHART_PERMUTATIONS = {
-    'pump-single': {
-       #normal:         '01234'
-        'flip':         '43210',
-        'mirror':       '34201',
-        'flip_mirror':  '10243'
-    },
-
-    'pump-double': {
-        #normal:        '0123456789'
-        'flip':         '9876543210',
-        'mirror':       '9875643201',
-        'flip_mirror':  '1023465789'
-    }
-}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -60,30 +43,6 @@ def search_for_music(chart_filename, root):
 
     return music_names[0]
 
-# https://github.com/chrisdonahue/ddc/blob/master/dataset/filter_json.py
-def add_permutations(chart_attrs):
-    for chart in chart_attrs.get('charts'):
-        chart['permutation'] = 'normal'
-
-        for permutation_name, permutation in CHART_PERMUTATIONS[chart['stepstype']].items():
-            chart_copy = copy.deepcopy(chart)
-            notes_cleaned = []
-            for meas, beat, time, note in chart_copy['notes']:
-
-                # permutation numbers signify moved location
-                #   ex) note = '10010'
-                #       perm = '43210' -> (flip horizontally)
-                #       note_new = '01001'
-
-                note_new = ''.join([note[int(permutation[i])] for i in range(len(permutation))])
-
-                notes_cleaned.append((meas, beat, time, note_new))
-                chart_copy['notes'] = notes_cleaned
-                chart_copy['permutation'] = permutation_name
-
-            chart_attrs['charts'].append(chart_copy)
-    return chart_attrs
-
 def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, out_dir):
     """Parses a set of pack's chart files (ucs/ssc)"""
 
@@ -97,7 +56,7 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, out_dir):
     chart_files_clean = set()
     for pack_chart_file in pack_chart_files:
         chart_filename = os.path.split(os.path.split(pack_chart_file)[0])[1]
-        chart_filename_clean = ez_name(chart_filename)
+        chart_filename_clean = util.ez_name(chart_filename)
         if chart_filename_clean in chart_files_clean:
             raise ValueError('song name conflict: {}'.format(chart_filename_clean))
         chart_files_clean.add(chart_filename_clean)
@@ -121,8 +80,6 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, out_dir):
                 music_fp = search_for_music(os.path.splitext(chart_filename)[0], root)
             except ValueError as e:
                 continue
-
-        chart_attrs = add_permutations(chart_attrs)
 
         # constrcut json object to save with important fields
         out_json_path = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
@@ -155,12 +112,12 @@ def main():
 
     # retrieve pack names, 
     packs_path = args.data_dir
-    pack_names = get_subdirs(packs_path, args.choose)
+    pack_names = util.get_subdirs(packs_path, args.choose)
     
     pack_names_clean = set()
 
     for pack_name in pack_names:
-        pack_name_clean = ez_name(pack_name)
+        pack_name_clean = util.ez_name(pack_name)
         if pack_name_clean in pack_names_clean:
             raise ValueError('pack name conflict: {}'.format(pack_name_clean))
         pack_names_clean.add(pack_name_clean)
