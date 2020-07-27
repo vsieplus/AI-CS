@@ -9,6 +9,7 @@ to be used to train the models.
 | `dataset/json/`    | Chart data in json format                                     |
 | `dataset/subsets/` | Metadata representing dataset subsets                         |
 | `processing/`      | ssc/ucs file extraction, conversion to json, dataset creation |
+| `spiders/`         | Web scrapers for the UCS site |
 
 ## Dataset info
 
@@ -36,7 +37,7 @@ files will be stored under `dataset/raw/`, similar to the pack data layout in st
 Alternatively, if you already have the packs on your own computer, you may simply copy
 them over (treat `dataset/raw` as the equivalent of the `Songs/` directory).
 
-To download UCS from the official PIU UCS site, you can run `scrape_ucs.py` with
+To download UCS from the official PIU UCS site, you can run `ucs_scrape.py` with
 different options. For instance, calling the below will download all UCS files
 created by authors **author1** or **author2**, for songs that debuted in either
 prime 2 or fiesta, and are between level 14 and 16. It is possible to specify
@@ -52,30 +53,36 @@ python scrape_ucs.py \
 
 You may also add your own `.ucs` files. However, if it is a plain `.ucs` file as
 created in StepEdit lite, you will need to enter some additional metadata about the charts.
-If you have some ucs files in a folder `path/to/charts/`, you can call
+To do so, first gather the ucs files into some directory and move it under `dataset/raw/`.
+Then call
 
-`python add_ucs_metadata.py 'path/to/charts/`
+`python ucs_add_metadata.py --ucs_dir=dataset/raw/DIRECTORY_NAME`
 
-which will walk you through this process. For the scraped files, this metadata is gathered
-automatically during the scraping process. Both of the above procedures will 
-create a custom ucs 'pack' (which it will ask you to name) under `dataset/raw/pack_name`.
+which will walk you through the process. For ucs files downloaded from the UCS sharing
+site, with the same code name (e.g. 'CS280') some data can be automatically found.
+Either way, some additional information will be needed like chart type, level, etc.
+For the scraped files, this metadata is gathered automatically during the scraping 
+process. Both of the above procedures will create a custom ucs 'pack' (which it will
+ask you to name) under `dataset/raw/UCS_packname`.
 
 ## Processing the data
 
 To convert 'ssc/ucs' files to usable format, there are several scripts in `processing/`.
-First to extract data from the ssc files and convert to json, you can call
+First to extract data from the ssc/ucs files and convert to json, you can call
 
 `python processing/generate_json.py`
 
 The resulting json files will be located under `dataset/json` according to their
-respective packs. Next to specify a custom subset of charts you can create a
-dataset. Calling `bash build_dataset.sh` will call `processing/dataset_json.py`
-with the specified parameters, ranging from difficulty levels, chart type (single/double),
+respective packs.
+
+To specify a custom subset of charts you can create a dataset. Calling 
+`bash build_dataset.sh` will call `processing/dataset_json.py` with the specified
+parameters, ranging from difficulty levels, chart type (single/double),
 song type (arcade/remix/...) and more. You may customize these parameters to build
 your own datasets. This script will also prompt you for a dataset **name** and
 ask which packs to choose songs and charts from.
 
-`bash build_dataset.sh [--additional --parameters ...] > dataset/subsets/name/`
+`bash build_dataset.sh [--additional --parameters ...]`
 
-The resulting files act as metadata to be used when training is initiated for
-a particular model (see `train/`).
+The resulting files will be stored in `dataset/subsets/name` and will act as metadata
+to be used when training is initiated for a particular model (see `train/`).
