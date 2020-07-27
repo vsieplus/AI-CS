@@ -3,7 +3,7 @@
 
 import logging
 import re
-import util
+from util import calc_note_beats_and_abs_times
 
 from collections import OrderedDict
 
@@ -250,7 +250,7 @@ def parse_chart_txt(chart_txt, chart_type):
                     # if notes,  convert -> ([measure, beat, split], abs_beat,
                     # abs_time, notes [as str ~ '1001'])
                     if attr_name == 'notes':
-                        attr_val_parsed = util.calc_note_beats_and_abs_times(
+                        attr_val_parsed = calc_note_beats_and_abs_times(
                             latest_chart['offset'], latest_chart['bpms'],
                             latest_chart['stops'], attr_val_parsed)
                     
