@@ -120,7 +120,7 @@ class UCSZipPipeline(FilesPipeline):
 
             out_path = re.sub('.zip', '', fp_abs)
             
-            os.system('unzip -d ' + out_path + ' ' + fp_abs)
+            os.system('unzip -o -d ' + out_path + ' ' + fp_abs)
             os.system('rm -f ' + fp_abs)
 
         return item
