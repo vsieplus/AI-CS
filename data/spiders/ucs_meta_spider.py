@@ -47,7 +47,7 @@ class UCS_DownloadSpider(scrapy.Spider):
 
         curr_page = int(page_area.xpath('.//strong[@class="pg_current"]/text()').get())
         next_page = curr_page + 1
-        next_page_link = page_area.xpath('.//a[contains(@href, "' + str(next_page) + '")]/@href').get()
+        next_page_link = page_area.xpath('.//a[contains(@href, "page=' + str(next_page) + '")]/@href').get()
 
         if next_page_link:
             yield response.follow(next_page_link, callback=self.parse)
