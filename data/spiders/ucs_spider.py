@@ -8,11 +8,13 @@ import os
 import json
 import datetime
 from pathlib import Path
+from getpass import getpass
 
 from spiders.ucs_meta_spider import UCS_BASE_DATA_PATH
 
 UCS_STEPARTIST_URL = 'http://www.piugame.com/bbs/board.php?ucs_event_no=&bo_table=ucs&sca=&sop=and&sfl=wr_name%2C1&stx='
 UCS_SONG_URL = 'http://www.piugame.com/bbs/board.php?ucs_event_no=&bo_table=ucs&sca=&sop=and&sfl=ucs_song_no%2C1&stx='
+POST_LOGIN_URL = 'https://www.piugame.com/bbs/piu.login_check.php'
 
 ABS_PATH = Path(__file__).parent.absolute()
 OUT_DIR = os.path.join(str(ABS_PATH), '../dataset/raw/')
@@ -59,13 +61,31 @@ class UCS_Spider(scrapy.Spider):
             self.start_urls = [UCS_SONG_URL + song_title for song_title in songs]
         else:
             start_urls = ['http://www.piugame.com/bbs/board.php?bo_table=ucs']
-
+        
+        print('Please enter login credentials: ')
+        self.user_email = input('User Email: ')
+        self.user_pw = getpass('Password: ')
+    
+    def verify_login(self, response):
+        return
+        #if 'wrong Password' in response.xpath('//').get():
+        #    self.logger.error('Login failed')
 
     def parse(self, response):
+        # check if need to login or already logged in
+        # http://scrapingauthority.com/2016/11/22/scrapy-login/
+        login_area = response.xpath('//form[@name="foutlogin"]')
+
+        if login_area:
+            yield scrapy.FormRequest.from_response(response,
+                formdata={'text': self.user_email, 'password': self.user_pw},
+                callback=self.verify_login)
+
         ucs_rows = response.xpath('//div[@class="share_list"]/table/tbody/tr')
 
         for ucs_row in ucs_rows:
-            yield scrapy.Request(ucs_row, callback=self.parse_ucs_row)
+            for download in self.parse_ucs_row(ucs_row):
+                yield download
 
         page_area = response.xpath('//span[@class="pg"]')
 
@@ -79,14 +99,14 @@ class UCS_Spider(scrapy.Spider):
     def parse_ucs_row(self, response):
         # date in (YY-MM-DD) format
         upload_date = response.xpath('.//td[@class="share_upload_date"]/text()').get().split('-')
-        upload_date_obj = date.datetime(year='20' + upload_date[0], 
-            month=upload_date[1], day=upload_date[2])
-        correct_date = upload_date_obj < self.start_date or self.end_date < upload_date_obj
+        upload_date_obj = datetime.date(year=int('20' + upload_date[0]),
+            month=int(upload_date[1]), day=int(upload_date[2]))
+        correct_date = self.start_date < upload_date_obj and upload_date_obj < self.end_date
 
         if not correct_date:
             return
 
-        song_title = response.xpath('.//span[@class="share_song_title"]/a/text()').get()
+        song_title = response.xpath('.//span[@class="share_song_title"]/a/text()').get().strip().lower()
 
         if not self.songs or self.songs and song_title in self.songs:
             chart_leveltype = response.xpath('.//td[@class="share_level"]/span/@class').get()
@@ -95,16 +115,21 @@ class UCS_Spider(scrapy.Spider):
             correct_chart_type = self.chart_type in chart_leveltype 
             valid_level = self.min_level <= chart_level and chart_level <= self.max_level
 
+            print(chart_level)
+            print(chart_leveltype)
+
             if correct_chart_type and valid_level:
-                stepmaker = response.xpath('.//td[@class="share_stepmaker"]/img/text()')
+                stepmaker = response.xpath('.//td[@class="share_stepmaker"]/text()').get().strip()
                 ucs_code = re.search(UCS_CODE_PATTERN, 
                     response.xpath('.//a[@class="btnUCSPlayr share_download1"]/@rel').get()).group(1)
                 
                 dl_link = response.xpath('.//a[@class="share_download2"]/@href')
 
-                # login before download
-
                 this_ucs_meta = self.UCS_METADATA[ucs_code]
+
+                print(this_ucs_meta)
+                print(stepmaker)
+                print(dl_link)
 
                 yield {**this_ucs_meta, **{'file_urls': [response.urljoin(dl_link)], 
                     'name': ucs_code, 'step_artist': stepmaker, 
