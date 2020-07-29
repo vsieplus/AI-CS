@@ -22,7 +22,7 @@ VERSION_DICT = {
     18: 'fiesta2', 19: 'prime', 20: 'prime2', 21: 'xx'}
 
 # crawl ucs file downloads
-class UCS_DownloadSpider(scrapy.Spider):
+class UCS_BaseDownloadSpider(scrapy.Spider):
     name = 'ucs_download'
     start_urls = ['http://www.piugame.com/piu.ucs/ucs.sample/ucs.sample.alltunes.php']
        

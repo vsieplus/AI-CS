@@ -10,7 +10,6 @@ from spiders import ucs_meta_spider
 from scrapy.crawler import CrawlerProcess
 
 ABS_PATH = pathlib.Path(__file__).parent.absolute()
-CRAWLER_PATH = os.path.join(str(ABS_PATH), 'spiders/ucs_meta_spider.py')
 META_JSON_PATH = os.path.join(str(ABS_PATH), 'dataset/00_ucs_metadata.json')
 
 def add_metadata(ucs_dir, ucs_metadata):
@@ -40,8 +39,8 @@ def add_metadata(ucs_dir, ucs_metadata):
         # prompt user for other + chart-specific info
         print('Please enter the following chart information for {}'.format(ucs_fp))
         ucs_meta['songtype'] = input('Song Type [arcade, remix, fullsong, shortcut]: ')
-        ucs_meta['genre'] = input('Genre [k-pop, original, world_music, j-music, xross]: ')
-        ucs_meta['author'] = input('Chart author: ')
+        ucs_meta['genre'] = input('Genre [k-pop, original, world-music, j-music, xross]: ')
+        ucs_meta['step_artist'] = input('Step artist: ')
         ucs_meta['chart_type'] = input('Chart type ["pump-single"/"pump-double"]: ')
         ucs_meta['meter'] = input('Chart level: ')
 
@@ -56,6 +55,19 @@ def add_metadata(ucs_dir, ucs_metadata):
             f.write(ucs_meta_str + old)
 
         print("Added metadata to {}\n".format(ucs_fp))
+
+def crawl_base_download():
+    process = CrawlerProcess()
+    process.crawl(ucs_meta_spider.UCS_BaseDownloadSpider)
+    process.start()
+
+def crawl_meta_download():
+    process = CrawlerProcess(settings={
+            "FEEDS":{META_JSON_PATH: {"format": "json"}}
+        })
+
+    process.crawl(ucs_meta_spider.UCS_MetaSpider)
+    process.start()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -73,17 +85,10 @@ def main():
         if metajson_exists:
             os.system('rm ' + META_JSON_PATH)
 
-        process = CrawlerProcess(settings={
-            "FEEDS":{META_JSON_PATH: {"format": "json"}}
-        })
-
-        process.crawl(ucs_meta_spider.UCS_MetaSpider)
-        process.start()
+        crawl_meta_download()
 
     if args.download or not os.path.isdir(ucs_meta_spider.UCS_BASE_DATA_PATH):
-        process = CrawlerProcess()
-        process.crawl(ucs_meta_spider.UCS_DownloadSpider)
-        process.start()
+        crawl_base_download()
 
     with open(META_JSON_PATH, 'r') as f:
         UCS_METADATA = json.loads(f.read())[0]

@@ -24,29 +24,29 @@ There is also functionality to train on UCS chart data, downloaded from
 the official PIU UCS sharing [site](http://www.piugame.com/bbs/board.php?bo_table=ucs).
 
 Each step chart is associated with some basic information, such as a path to the
-song itself, the artist and step artist (sometimes), chart type, level, bpm, 
+song itself, the artist and step artist (sometimes), chart type, level, bpm,
 and the actual step chart. This information is used to help train the models to
 learn how to generate charts. The final representation of the chart in the json
-files amounts to effectively a 3-tuple for each 
+files amounts to effectively a 3-tuple for each beat.
 
 ## Getting the data
 
-To download the 'official' game chart data you may call `./get_stepp1_data.sh`, which 
+To download the 'official' game chart data you may call `./get_stepp1_data.sh`, which
 downloads the base packs as included in STEPF2/P1. These files will be stored under
 `dataset/raw/`, similar to the pack data layout in stepf2/p1. Alternatively, if
 you already have the packs on your own computer, you may simply copy them over
 (treat `dataset/raw` as the equivalent of the `Songs/` directory).
 
 To download UCS from the official PIU UCS site, you can run `ucs_scrape.py` with
-different options. For instance, calling the below will download all UCS files
-created by authors **author1** or **author2**, for songs that debuted in either
+different options. For instance, calling the below will download all UCS singles charts
+created by step artists **artist1** or **artist2**, for songs that debuted in either
 prime 2 or fiesta, and are between level 14 and 16. It is possible to specify
 other parameters such as specific songs, chart types, date published, etc...
 
 ```python
 python scrape_ucs.py \
-    --authors author1 author2 \
-    --mixes prime2 fiesta \
+    --chart_type=single \
+    --step_artists artist1 artist2 \
     --min_level=14 \
     --max_level=16
 ```
@@ -84,7 +84,7 @@ First to extract data from the ssc/ucs files and convert to json, you can call
 The resulting json files will be located under `dataset/json` according to their
 respective packs.
 
-To specify a custom subset of charts you can create a dataset. Calling 
+To specify a custom subset of charts you can create a dataset. Calling
 `bash build_dataset.sh` will call `processing/dataset_json.py` with the specified
 parameters, ranging from difficulty levels, chart type (single/double),
 song type (arcade/remix/...) and more. You may customize these parameters to build
