@@ -115,21 +115,13 @@ class UCS_Spider(scrapy.Spider):
             correct_chart_type = self.chart_type in chart_leveltype 
             valid_level = self.min_level <= chart_level and chart_level <= self.max_level
 
-            print(chart_level)
-            print(chart_leveltype)
-
             if correct_chart_type and valid_level:
                 stepmaker = response.xpath('.//td[@class="share_stepmaker"]/text()').get().strip()
-                ucs_code = re.search(UCS_CODE_PATTERN, 
-                    response.xpath('.//a[@class="btnUCSPlayr share_download1"]/@rel').get()).group(1)
+                ucs_code = re.search(UCS_CODE_PATTERN, response.get()).group(1)
                 
-                dl_link = response.xpath('.//a[@class="share_download2"]/@href')
+                dl_link = response.xpath('.//a[@class="share_download2"]/@href').get()
 
                 this_ucs_meta = self.UCS_METADATA[ucs_code]
-
-                print(this_ucs_meta)
-                print(stepmaker)
-                print(dl_link)
 
                 yield {**this_ucs_meta, **{'file_urls': [response.urljoin(dl_link)], 
                     'name': ucs_code, 'step_artist': stepmaker, 
