@@ -12,11 +12,16 @@ from getpass import getpass
 
 from spiders.ucs_meta_spider import UCS_BASE_DATA_PATH
 
+ABS_PATH = Path(__file__).parent.absolute()
+
+import sys
+sys.path.append(os.path.join(str(ABS_PATH), "../processing"))
+from util import ez_name
+
 UCS_STEPARTIST_URL = 'http://www.piugame.com/bbs/board.php?ucs_event_no=&bo_table=ucs&sca=&sop=and&sfl=wr_name%2C1&stx='
 UCS_SONG_URL = 'http://www.piugame.com/bbs/board.php?ucs_event_no=&bo_table=ucs&sca=&sop=and&sfl=ucs_song_no%2C1&stx='
-POST_LOGIN_URL = 'https://www.piugame.com/bbs/piu.login_check.php'
+BASE_DL_URL = 'http://piugame.com/bbs/'
 
-ABS_PATH = Path(__file__).parent.absolute()
 OUT_DIR = os.path.join(str(ABS_PATH), '../dataset/raw/')
 
 UCS_LVL_PATTERN = 's_lv([0-9][0-9])'
@@ -123,9 +128,9 @@ class UCS_Spider(scrapy.Spider):
 
                 this_ucs_meta = self.UCS_METADATA[ucs_code]
 
-                yield {**this_ucs_meta, **{'file_urls': [response.urljoin(dl_link)], 
+                yield {**this_ucs_meta, **{'file_urls': [BASE_DL_URL + dl_link], 
                     'name': ucs_code, 'step_artist': stepmaker, 
-                    'chart_type': self.chart_type, 'meter': self.chart_level,
+                    'chart_type': self.chart_type, 'meter': chart_level,
                     'songtype': 'arcade', 'pack_name': self.pack_name}}
 
 
@@ -146,22 +151,27 @@ class UCSPipeline(FilesPipeline):
         for fp in file_paths:
             # add metadata to file
             fp_abs = os.path.join(OUT_DIR, fp)
-            add_metadata(item, fp_abs)
+            self.add_metadata(item, fp_abs)
 
             # create + move to subfolder
-            subfolder = os.path.join(OUT_DIR, item['pack_name'], item['title'])
-            subfolder = os.path.join(subfolder, item['chart_type'] + item['meter']
-                + '_' + item['step_artist'])
-            os.makedirs(subfolder)
+            clean_title = ez_name(item['title'])
+            clean_packname = ez_name(item['pack_name'])
+            clean_artist = ez_name(item['step_artist'])
+            
+            subfolder = item['chart_type'] + str(item['meter']) + '_' + clean_artist
+            
+            sub_path = os.path.join(OUT_DIR, clean_packname, clean_title, subfolder)
+            if not os.path.isdir(sub_path):
+                os.makedirs(sub_path)
 
-            os.system('mv {} {}'.format(fp_abs, subfolder))
+            os.system('mv {} {}'.format(fp_abs, sub_path))
 
         return item
 
     def add_metadata(self, item, fp):
         ucs_meta = ''
         for k,v in item.items():
-            ucs_meta += ':{}={}'.format(k,v)
+            ucs_meta += ':{}={}\n'.format(k,v)
 
         with open(fp, 'r+') as f:
             old = f.read()
