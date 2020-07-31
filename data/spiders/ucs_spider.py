@@ -1,7 +1,6 @@
 # Download specific ucs files along with metadata
 
 import scrapy
-from scrapy.pipelines.files import FilesPipeline
 from lxml import html
 from lxml.etree import tostring
 
@@ -34,12 +33,6 @@ UCS_CODE_PATTERN = '_(CS[0-9][0-9][0-9])#scrollSpeed='
 class UCS_Spider(scrapy.Spider):
     name = 'ucs_spider'
 
-    custom_settings = {
-        'ITEM_PIPELINES': {'spiders.ucs_spider.UCSPipeline': 1},
-        'FILES_STORE': OUT_DIR,
-        'MEDIA_ALLOW_REDIRECTS': True
-    }
-
     # specific > generic (step_artist > song > level > mix > ...)
     def __init__(self, pack_name, step_artists, min_level, max_level,
         chart_type, songs, start_date, end_date, meta_json_path):
@@ -68,7 +61,9 @@ class UCS_Spider(scrapy.Spider):
         else:
             start_urls = [BASE_LOGIN_URL]
         
-        # login to ucs site to enable downloads
+        # login to ucs site to enable downloads using 'requests'
+        # http://kazuar.github.io/scraping-tutorial/
+        # https://stackoverflow.com/questions/11892729/how-to-log-in-to-a-website-using-pythons-requests-module/17633072#17633072
         print('Please enter login credentials: ')
         user_email = input('User Email: ')
         user_pw = getpass('Password: ')
@@ -78,12 +73,6 @@ class UCS_Spider(scrapy.Spider):
         self.session_requests = requests.session()
         result = self.session_requests.post(BASE_LOGIN_URL, data=payload,
             headers={'referer': BASE_LOGIN_URL})
-        print(result.text)
-
-    def verify_login(self, response):
-        return
-        #if 'wrong Password' in response.xpath('//')[0]:
-        #    self.logger.error('Login failed')
 
     def parse(self, response):
         # check if need to login or already logged in
@@ -100,14 +89,16 @@ class UCS_Spider(scrapy.Spider):
         ucs_rows = new_response.xpath('//div[@class="share_list"]/table/tbody/tr')
 
         for ucs_row in ucs_rows:
-            for download in self.parse_ucs_row(ucs_row):
-                yield download
-
+            self.parse_ucs_row(ucs_row)
+            
         page_area = new_response.xpath('//span[@class="pg"]')[0]
 
         curr_page = int(page_area.xpath('.//strong[@class="pg_current"]/text()')[0])
         next_page = curr_page + 1
         next_page_link = page_area.xpath('.//a[contains(@href, "page=' + str(next_page) + '")]/@href')
+
+        if next_page_link:
+            yield response.follow(next_page_link[0], callback=self.parse)
 
     def parse_ucs_row(self, response):
         # date in (YY-MM-DD) format
@@ -129,59 +120,45 @@ class UCS_Spider(scrapy.Spider):
             valid_level = self.min_level <= chart_level and chart_level <= self.max_level
 
             if correct_chart_type and valid_level:
-                stepmaker = response.xpath('.//td[@class="share_stepmaker"]/text()')[0].strip()
+                stepmaker = response.xpath('.//td[@class="share_stepmaker"]/text()')[0].strip().lower()
                 ucs_code = re.search(UCS_CODE_PATTERN, tostring(response, encoding='unicode')).group(1)
                 
                 dl_link = response.xpath('.//a[@class="share_download2"]/@href')[0]
 
-                this_ucs_meta = self.UCS_METADATA[ucs_code]
+                this_ucs_metadata = self.UCS_METADATA[ucs_code]
 
-                yield {**this_ucs_meta, **{'file_urls': [BASE_DL_URL + dl_link], 
+                ucs_dl_dict = {**this_ucs_metadata, **{'url': BASE_DL_URL + dl_link, 
                     'name': ucs_code, 'step_artist': stepmaker, 
                     'chart_type': self.chart_type, 'meter': chart_level,
                     'songtype': 'arcade', 'pack_name': self.pack_name}}
 
+                self.download_chart(ucs_dl_dict) 
+                    
+    # download the specified ucs chart with its associated data
+    def download_chart(self, ucs_dict):
+        chart_txt = self.session_requests.get(ucs_dict['url']).text
 
-# custom pipeline for ucs files
-class UCSPipeline(FilesPipeline):
-    def file_path(self, request, response=None, info=None):
-        return request.meta.get('filename','') + '.ucs'
+        # create + download to subfolder
+        clean_title = ez_name(ucs_dict['title'])
+        clean_packname = ez_name(ucs_dict['pack_name'])
+        clean_artist = ez_name(ucs_dict['step_artist'])
+        
+        ucs_folder_name = ucs_dict['chart_type'] + str(ucs_dict['meter']) + '_' + clean_artist
+        
+        ucs_dir = os.path.join(OUT_DIR, clean_packname, clean_title, ucs_folder_name)
+        if not os.path.isdir(ucs_dir):
+            os.makedirs(ucs_dir)
 
-    def get_media_requests(self, item, info):
-        file_url = item['file_urls'][0]
-        meta = {'filename': item['name']}
-        yield scrapy.Request(url=file_url, meta=meta)
-    
-    # unzip upon download
-    def item_completed(self, results, item, info):
-        file_paths = [file['path'] for ok, file in results if ok]
+        self.add_chart_data(chart_txt, ucs_dict, ucs_dir)
 
-        for fp in file_paths:
-            # add metadata to file
-            fp_abs = os.path.join(OUT_DIR, fp)
-            self.add_metadata(item, fp_abs)
+    # write the chart data to the specified file
+    def add_chart_data(self, chart_txt, ucs_dict, dir_fp):
+        ucs_text = ''
+        for k,v in ucs_dict.items():
+            ucs_text += ':{}={}\n'.format(k,v)
 
-            # create + move to subfolder
-            clean_title = ez_name(item['title'])
-            clean_packname = ez_name(item['pack_name'])
-            clean_artist = ez_name(item['step_artist'])
-            
-            subfolder = item['chart_type'] + str(item['meter']) + '_' + clean_artist
-            
-            sub_path = os.path.join(OUT_DIR, clean_packname, clean_title, subfolder)
-            if not os.path.isdir(sub_path):
-                os.makedirs(sub_path)
+        ucs_text += chart_txt
 
-            os.system('mv {} {}'.format(fp_abs, sub_path))
-
-        return item
-
-    def add_metadata(self, item, fp):
-        ucs_meta = ''
-        for k,v in item.items():
-            ucs_meta += ':{}={}\n'.format(k,v)
-
-        with open(fp, 'r+') as f:
-            old = f.read()
-            f.seek(0,0)
-            f.write(ucs_meta + old)
+        ucs_fp = os.path.join(dir_fp, ucs_dict['name'] + '.ucs')
+        with open(ucs_fp, 'w') as f:
+            f.write(ucs_text)
