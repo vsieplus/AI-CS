@@ -6,18 +6,18 @@ import re
 import os
 from collections import OrderedDict
 
-from util import calc_note_beats_and_abs_times
+from util import calc_note_beats_and_abs_times, bpm_to_spb
 
 import os
 from pathlib import Path
 
 ABS_PATH = Path(__file__).parent.absolute()
-UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
+UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/raw/00-UCS_BASE')
 
-UCS_SECTION_PATTERN = r':BPM=([0-9]+)\n:Delay=([0-9]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
+UCS_SECTION_PATTERN = r':BPM=([0-9]+)\n:Delay=([-0-9]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
 UCS_SPLIT_PATTERNS = {
-    'single': r'([XWMH.]{5})',
-    'double': r'([XWMH.]{10})'
+    'single': r'(([XWMH.]{5}\n)*)',
+    'double': r'(([XWMH.]{10}\n)*)'
 }
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
@@ -128,17 +128,67 @@ def ssc_notes_parser(x):
     return measures_clean
 
 # directly compute ([], time, beat, note)
-def ucs_notes_parser(chart_txt, chart_sections, chart_type):
-    # first extract all lines corresponding to a split
-    remaining_splits = re.findall(UCS_SPLIT_PATTERNS[chart_type], chart_txt)
-    
+def ucs_notes_parser(chart_txt, chart_sections, chart_type):    
     # divide splits into their respective sections
-    for bpm, delay, beat, split in chart_sections:
-        pass
-    
-    measures_clean = []
+    curr_measure = 0
+    curr_absolute_beat = 0.0
+    curr_section = 0
 
+    measures_clean = []    
+    section_lengths = []        # track total time for each section
+
+    for float(bpm), float(delay_ms), int(beats_per_measure), int(splits_per_beat), 
+        splits_txt in chart_sections:
+        
+        # subtract 100MS from delay to line up notes with audio
+        # only first section should use delay
+        if curr_section == 0:
+            delay_secs = (delay_ms - 100) / float(1000)
+        else:
+            delay_secs = 0.0
+
+        splits = splits_txt.split('\n')
+        splits_per_measure = splits_per_beat * beats_per_measure
+
+        curr_relative_beat = 0
+        curr_spb = bpm_to_spb(bpm)
+        curr_section_beats = len(splits) / splits_per_beat
+
+        previous_sections_length = sum(section_lengths)
+
+        for curr_split, notes in enumerate(splits):
+            # split number relative to the current beat
+            relative_split = curr_split % splits_per_measure
+            
+            # only add non-empty splits
+            if len(re.findall('[XMHW]', notes)) > 0:
+                beat_time = calc_ucs_beat_time(previous_sections_length, 
+                    curr_section, curr_spb, curr_relative_beat, delay_secs)
+
+                measures_clean.append([[curr_measure, splits_per_measure, relative_split],
+                    curr_absolute_beat, beat_time, notes])
+
+            # increment chart progress
+            beat_increment = float(1) / splits_per_beat
+            curr_relative_beat += beat_increment
+            curr_absolute_beat += beat_increment
+
+            if (curr_split + 1) % splits_per_measure == 0:
+                curr_measure += 1
+        
+        curr_section += 1
+        curr_section_time = curr_spb * curr_section_beats
+        section_lengths.append(curr_section_time)
+    
     return measures_clean
+
+# helper to compute beat time for a ucs split
+def calc_ucs_beat_time(previous_sections, curr_section, curr_spb,
+    curr_relative_beat, delay_secs):
+    
+    curr_partial_section = curr_spb * curr_relative_beat
+    return previous_sections + curr_partial_section + delay
+
 
 # for SSC attributes
 ATTR_NAME_TO_PARSER = {
@@ -232,20 +282,20 @@ def parse_chart_txt(chart_txt, chart_type):
 def parse_ucs_txt(chart_txt):
     attrs = {}
 
-    # first parse meta chart attributes (names should be all lowercase)
-    for attr_name, attr_val in re.findall(r':([a-z]*)=(*)$', chart_txt):
+    # first parse meta chart attributes (names should be all lowercase or has '_')
+    for attr_name, attr_val in re.findall(r':([a-z_]*)=(.*)', chart_txt):
         if attr_name.islower():
             attrs[attr_name] = attr_val
 
     # find path to music based on CS___ code
-    music_fp = os.path.join(UCS_BASE_PATH, attrs['name']/ attrs['name'] + '.mp3')
+    music_fp = os.path.join(UCS_BASE_PATH, attrs['name'], attrs['name'] + '.mp3')
     if not os.path.isfile(music_fp):
         raise ValueError("""Music file for {} not found. Please run ucs_add_metadata.py
             with --scrape and --download options""".format(attrs['name']))
     
     attrs['music'] = music_fp
 
-    # each ucs chart section consists of 4 values:
+    # each ucs chart section consists of 4 meta-values plus the notes themselves in splits:
     # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
     chart_sections = re.findall(UCS_SECTION_PATTERN, chart_txt)
     
