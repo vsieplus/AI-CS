@@ -136,7 +136,7 @@ class UCS_Spider(scrapy.Spider):
         
         ucs_folder_name = ucs_dict['chart_type'] + str(ucs_dict['meter']) + '_' + clean_artist
         
-        ucs_dir = os.path.join(OUT_DIR, clean_packname, clean_title + '_' ucs_folder_name)
+        ucs_dir = os.path.join(OUT_DIR, clean_packname, clean_title + '_' + ucs_folder_name)
         if not os.path.isdir(ucs_dir):
             os.makedirs(ucs_dir)
 
