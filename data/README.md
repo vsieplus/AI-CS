@@ -17,21 +17,21 @@ The majority of the chart data used for this project is taken from the collectio
 provided by the [STEPF2/P1 Project](https://stepf2.blogspot.com/). Specifically, it includes
 packs starting from 1st-3rd up to Prime 2, including Pro 1 & 2, as well as Infinity 1.10.
 When training a model, you can create a sub-dataset as shown below to customize what
-types of songs and charts it sees. This may directly affect how it behaves afterwards,
+types of songs and charts it sees. This will directly affect how it behaves afterwards,
 when it tries to generate something brand new.
 
 There is also functionality to train on UCS chart data, downloaded from
 the official PIU UCS sharing [site](http://www.piugame.com/bbs/board.php?bo_table=ucs).
 
 Each step chart is associated with some basic information, such as a path to the
-song itself, the artist and step artist (sometimes), chart type, level, bpm,
-and the actual step chart. This information is used to help train the models to
-learn how to generate charts. The final representation of the chart in the json
-files amounts to effectively a 3-tuple for each beat.
+song itself, the artist and step artist (sometimes), chart type, difficulty level, bpm,
+and the actual step chart. The key information in a chart that is directly used is the
+sequence of all the steps in the chart, paired with the time and beat which they occur
+for the associated song.
 
 ## Getting the data
 
-To download the 'official' game chart data you may call `./get_stepp1_data.sh`, which
+To download the 'official' game chart data you can call `./get_stepp1_data.sh`, which
 downloads the base packs as included in STEPF2/P1. These files will be stored under
 `dataset/raw/`, similar to the pack data layout in stepf2/p1. Alternatively, if
 you already have the packs on your own computer, you may simply copy them over
@@ -42,7 +42,8 @@ different options. For instance, calling the below will download all UCS singles
 created by step artists **artist1** or **artist2**, for songs that debuted in either
 prime 2 or fiesta, and are between level 14 and 16. It is possible to specify
 other parameters such as specific song titles and a range for the date published. Use
-the `-h` option for more info.
+the `-h` option for more info. This script will prompt you for your PIU account
+login information, as an account is required to download UCS files from their website.
 
 ```python
 python scrape_ucs.py \
@@ -82,17 +83,19 @@ First to extract data from the ssc/ucs files and convert to json, you can call
 
 `python processing/generate_json.py`
 
-The resulting json files will be located under `dataset/json` according to their
-respective packs.
+This will then ask you to choose a set of packs to convert from theose currently under 
+`dataset/raw/`. The resulting json files will be located under `dataset/json/` in
+directories according to their respective packs. These files will contain the data that can
+be directly used during model training.
+
+## Creating a dataset
 
 To specify a custom subset of charts you can create a dataset. Calling
 `bash build_dataset.sh` will call `processing/dataset_json.py` with the specified
-parameters, ranging from difficulty levels, chart type (single/double),
+parameters, which include difficulty levels, chart type (single/double), song bpm,
 song type (arcade/remix/...) and more. You may customize these parameters to build
 your own datasets. This script will also prompt you for a dataset **name** and
 ask which packs to choose songs and charts from.
-
-`bash build_dataset.sh [--additional --parameters ...]`
 
 The resulting files will be stored in `dataset/subsets/name` and will act as metadata
 to be used when training is initiated for a particular model (see `train/`).
