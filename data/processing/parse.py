@@ -15,7 +15,10 @@ ABS_PATH = Path(__file__).parent.absolute()
 UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
 
 UCS_SECTION_PATTERN = r':BPM=([0-9]+)\n:Delay=([0-9]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
-UCS_NOTE_CHARS = ['X', 'W', 'M', 'H', '\.']
+UCS_SPLIT_PATTERNS = {
+    'single': r'([XWMH.]{5})',
+    'double': r'([XWMH.]{10})'
+}
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
 bool_parser = lambda x: True if x.strip() == 'YES' else False
@@ -106,7 +109,7 @@ def speeds_parser(x):
     return speeds_clean
 
 # represent notes as list of lists. sublist ~ measure, sub-elem ~ beat
-def ssc_parser(x):
+def ssc_notes_parser(x):
     # parse/clean measures
     measures = [measure.splitlines() for measure in x.split(',')]
     measures_clean = []
@@ -124,11 +127,14 @@ def ssc_parser(x):
 
     return measures_clean
 
-def ucs_parser(chart_txt, chart_sections):
-    measures = []
+# directly compute ([], time, beat, note)
+def ucs_notes_parser(chart_txt, chart_sections, chart_type):
+    # first extract all lines corresponding to a split
+    remaining_splits = re.findall(UCS_SPLIT_PATTERNS[chart_type], chart_txt)
     
+    # divide splits into their respective sections
     for bpm, delay, beat, split in chart_sections:
-        asdf
+        pass
     
     measures_clean = []
 
@@ -200,7 +206,7 @@ ATTR_NAME_TO_PARSER = {
     'scrolls': str_parser,
 
     'fakes': str_parser,
-    'notes': ssc_parser,
+    'notes': ssc_notes_parser,
 }
 
 # (required) chart attributes
@@ -243,13 +249,13 @@ def parse_ucs_txt(chart_txt):
     # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
     chart_sections = re.findall(UCS_SECTION_PATTERN, chart_txt)
     
-    # parse the chart notes
+    # represent charts as singleton list
     attrs['charts'] = [{
         'stepstype': attrs['chart_type'],
         'meter': attrs['meter'],
         'credit': attrs['step_artist'],
         'offset': chart_sections[0][1]      # use delay of first section as offset
-        'notes': ucs_parser(chart_txt, chart_sections)
+        'notes': ucs_notes_parser(chart_txt, chart_sections, attrs['chart_type'])
     }]
     
     return attrs
