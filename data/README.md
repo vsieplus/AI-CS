@@ -41,7 +41,8 @@ To download UCS from the official PIU UCS site, you can run `ucs_scrape.py` with
 different options. For instance, calling the below will download all UCS singles charts
 created by step artists **artist1** or **artist2**, for songs that debuted in either
 prime 2 or fiesta, and are between level 14 and 16. It is possible to specify
-other parameters such as specific songs, chart types, date published, etc...
+other parameters such as specific song titles and a range for the date published. Use
+the `-h` option for more info.
 
 ```python
 python scrape_ucs.py \
@@ -52,7 +53,7 @@ python scrape_ucs.py \
 ```
 
 This will create a custom ucs 'pack', (which it will ask you to name) under
-`dataset/raw/UCS_packname`.
+`dataset/raw/pack_name`.
 
 You may also add your own `.ucs` files. However, if it is a plain `.ucs` file as
 created in StepEdit lite, you will need to enter some additional metadata about the charts.

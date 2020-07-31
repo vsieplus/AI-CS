@@ -62,7 +62,6 @@ class UCS_Spider(scrapy.Spider):
             start_urls = [BASE_LOGIN_URL]
         
         # login to ucs site to enable downloads using 'requests'
-        # http://kazuar.github.io/scraping-tutorial/
         # https://stackoverflow.com/questions/11892729/how-to-log-in-to-a-website-using-pythons-requests-module/17633072#17633072
         print('Please enter login credentials: ')
         user_email = input('User Email: ')
@@ -75,14 +74,6 @@ class UCS_Spider(scrapy.Spider):
             headers={'referer': BASE_LOGIN_URL})
 
     def parse(self, response):
-        # check if need to login or already logged in
-        # http://scrapingauthority.com/2016/11/22/scrapy-login/
-        # login_area = response.xpath('//form[@name="foutlogin"]')
-
-        # if login_area:
-        #     yield scrapy.FormRequest.from_response(response,
-        #         formdata={'mb_id': self.user_email, 'mb_password': self.user_pw},
-        #         callback=self.verify_login)
         result = self.session_requests.get(response.url, headers={'referer': response.url})
         new_response = html.fromstring(result.content)
 
