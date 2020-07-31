@@ -10,14 +10,13 @@ import glob
 from collections import OrderedDict
 from pathlib import Path
 
-import parse
-import util
+from parse import parse_chart_txt
+from util import get_subdirs, ez_name
 
 ABS_PATH = Path(__file__).parent.absolute()
 DEFAULT_OUT_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
 
 CHART_TYPES = ['ucs', 'ssc']
-UCS_PACKNAME = 'UCS'
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -43,10 +42,8 @@ def search_for_music(chart_filename, root):
 
     return music_names[0]
 
-def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, out_dir):
+def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
     """Parses a set of pack's chart files (ucs/ssc)"""
-
-    assert(chart_type in CHART_TYPES)
 
     if len(pack_chart_files) > 0:
         pack_outdir = os.path.join(out_dir, pack_name_clean)
@@ -55,18 +52,15 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, out_dir):
         
     chart_files_clean = set()
     for pack_chart_file in pack_chart_files:
-        chart_filename = os.path.split(os.path.split(pack_chart_file)[0])[1]
-        chart_filename_clean = util.ez_name(chart_filename)
-        if chart_filename_clean in chart_files_clean:
-            raise ValueError('song name conflict: {}'.format(chart_filename_clean))
-        chart_files_clean.add(chart_filename_clean)
+        chart_type = pack_chart_file.split('.')[-1]
+        assert(chart_type in CHART_TYPES)
 
         with open(pack_chart_file, 'r') as f:
             chart_txt = f.read()
 
         # parse chart metadata from the text for the given chart type
         try:
-            chart_attrs = parse.parse_chart_txt(chart_txt, chart_type)
+            chart_attrs = parse_chart_txt(chart_txt, chart_type)
         except Exception as e:
             logging.error('{} in\n{}'.format(e, pack_chart_file))
             raise e
@@ -81,15 +75,28 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, out_dir):
             except ValueError as e:
                 continue
 
-        # constrcut json object to save with important fields
+        # determine output filename/path
+        chart_filename = os.path.split(os.path.split(pack_chart_file)[0])[1]
+        if chart_type == 'ssc':
+            chart_filename_clean = ez_name(chart_filename)
+        elif chart_type == 'ucs':
+            chart_filename_clean = '_'.join([chart_attrs['title'], chart_attrs['chart_type'][0]
+                + chart_attrs['meter'],chart_attrs['step_artist']])
+        
+        if chart_filename_clean in chart_files_clean:
+            raise ValueError('song name conflict: {}'.format(chart_filename_clean))
+        chart_files_clean.add(chart_filename_clean)
+
         out_json_path = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
+
+        # constrcut json object to save with important fields
         out_json = OrderedDict([
             ('chart_fp', os.path.abspath(pack_chart_file)),
             ('music_fp', os.path.abspath(music_fp)),
             ('pack', pack_name_clean),
             ('title', chart_attrs.get('title')),
             ('artist', chart_attrs.get('artist')),
-            ('genre', chart_attrs.get('genre')),
+            ('genre', chart_attrs.get('genre', '')),
             ('songtype', chart_attrs.get('songtype')),      # arcade/remix/shortcut/...
             ('charts', chart_attrs.get('charts'))
         ])
@@ -112,28 +119,23 @@ def main():
 
     # retrieve pack names, 
     packs_path = args.data_dir
-    pack_names = util.get_subdirs(packs_path, args.choose)
+    pack_names = get_subdirs(packs_path, args.choose)
     
     pack_names_clean = set()
 
     for pack_name in pack_names:
-        pack_name_clean = util.ez_name(pack_name)
+        pack_name_clean = ez_name(pack_name)
         if pack_name_clean in pack_names_clean:
             raise ValueError('pack name conflict: {}'.format(pack_name_clean))
         pack_names_clean.add(pack_name_clean)
 
         pack_dir = os.path.join(args.data_dir, pack_name)
-        
-        if pack_name == UCS_PACKNAME:
-            chart_type = 'ucs'
-        else:
-            chart_type = 'ssc'
 
-        pack_globs = os.path.join(pack_dir, '*', '*.' + chart_type)
-        pack_chart_files = sorted(glob.glob(pack_globs))
+        ssc_pack_globs = os.path.join(pack_dir, '*', '*.' + 'ssc')
+        ucs_pack_globs = os.path.join(pack_dir, '*', '*.' + 'ucs')
+        pack_chart_files = sorted(glob.glob(ssc_pack_globs) + glob.glob(ucs_pack_globs))
 
-        parse_pack_charts(pack_name_clean, pack_chart_files, chart_type, args.out_dir)
-            
+        parse_pack_charts(pack_name_clean, pack_chart_files, args.out_dir)
 
 if __name__ == '__main__':
     main()

@@ -3,9 +3,19 @@
 
 import logging
 import re
+import os
+from collections import OrderedDict
+
 from util import calc_note_beats_and_abs_times
 
-from collections import OrderedDict
+import os
+from pathlib import Path
+
+ABS_PATH = Path(__file__).parent.absolute()
+UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
+
+UCS_SECTION_PATTERN = r':BPM=([0-9]+)\n:Delay=([0-9]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
+UCS_NOTE_CHARS = ['X', 'W', 'M', 'H', '\.']
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
 bool_parser = lambda x: True if x.strip() == 'YES' else False
@@ -96,11 +106,7 @@ def speeds_parser(x):
     return speeds_clean
 
 # represent notes as list of lists. sublist ~ measure, sub-elem ~ beat
-def notes_parser(x, chart_type = 'ssc'):
-
-    if(chart_type not in ['ucs', 'ssc']):
-        return
-    
+def ssc_parser(x):
     # parse/clean measures
     measures = [measure.splitlines() for measure in x.split(',')]
     measures_clean = []
@@ -118,11 +124,17 @@ def notes_parser(x, chart_type = 'ssc'):
 
     return measures_clean
 
-def ucs_notes_parser(x):
+def ucs_parser(chart_txt, chart_sections):
+    measures = []
+    
+    for bpm, delay, beat, split in chart_sections:
+        asdf
+    
     measures_clean = []
 
     return measures_clean
 
+# for SSC attributes
 ATTR_NAME_TO_PARSER = {
     # song attrs.
     'title': str_parser,
@@ -188,11 +200,10 @@ ATTR_NAME_TO_PARSER = {
     'scrolls': str_parser,
 
     'fakes': str_parser,
-    'notes': unsupported_parser('notes'),       # handle manually
+    'notes': ssc_parser,
 }
 
-# distinguish song and chart attributes
-ATTR_SONG = []
+# (required) chart attributes
 ATTR_CHART = ['notedata', 'chartname', 'stepstype', 'description', 'chartstyle', 
     'stops', 'warps', 'delays', 'difficulty', 'meter', 'radarvalues', 'credit',
     'patchinfo', 'offset', 'displaybpm', 'bpms', 'tickcounts', 'combos', 'speeds',
@@ -204,6 +215,47 @@ ATTR_CHART_REQUIRED = ['stepstype', 'description', 'meter', 'credit', 'offset',
 ATTR_NOTES = 'notes'
 
 def parse_chart_txt(chart_txt, chart_type):
+    if chart_type == 'ssc':
+        return parse_ssc_txt(chart_txt)
+    elif chart_type == 'ucs':
+        return parse_ucs_txt(ucs_txt)
+    else:
+        raise NotImplementedError('Parser for chart type {} not implemented'.format(chart_type))
+
+# parse text from a ucs file (+ metadata)
+def parse_ucs_txt(chart_txt):
+    attrs = {}
+
+    # first parse meta chart attributes (names should be all lowercase)
+    for attr_name, attr_val in re.findall(r':([a-z]*)=(*)$', chart_txt):
+        if attr_name.islower():
+            attrs[attr_name] = attr_val
+
+    # find path to music based on CS___ code
+    music_fp = os.path.join(UCS_BASE_PATH, attrs['name']/ attrs['name'] + '.mp3')
+    if not os.path.isfile(music_fp):
+        raise ValueError("""Music file for {} not found. Please run ucs_add_metadata.py
+            with --scrape and --download options""".format(attrs['name']))
+    
+    attrs['music'] = music_fp
+
+    # each ucs chart section consists of 4 values:
+    # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
+    chart_sections = re.findall(UCS_SECTION_PATTERN, chart_txt)
+    
+    # parse the chart notes
+    attrs['charts'] = [{
+        'stepstype': attrs['chart_type'],
+        'meter': attrs['meter'],
+        'credit': attrs['step_artist'],
+        'offset': chart_sections[0][1]      # use delay of first section as offset
+        'notes': ucs_parser(chart_txt, chart_sections)
+    }]
+    
+    return attrs
+
+# parse text from an ssc file
+def parse_ssc_txt(chart_txt):
     attrs = {}
 
     # parse each attribute in the txt
@@ -215,10 +267,7 @@ def parse_chart_txt(chart_txt, chart_type):
             continue
 
         # if attribute is 'notes', parse differently depending on chart type
-        if attr_name == ATTR_NOTES:
-            attr_val_parsed = notes_parser(attr_val, chart_type)
-        else:
-            attr_val_parsed = ATTR_NAME_TO_PARSER[attr_name](attr_val)
+        attr_val_parsed = ATTR_NAME_TO_PARSER[attr_name](attr_val)
 
         # check for duplicate song attrs
         if attr_name in attrs:
@@ -227,7 +276,6 @@ def parse_chart_txt(chart_txt, chart_type):
             else:
                 raise ValueError('Song Attribute {} defined multiple times'.format(attr_name))
         elif attr_name in ATTR_CHART:
-
             if attr_name not in ATTR_CHART_REQUIRED:
                 continue
 
@@ -247,8 +295,8 @@ def parse_chart_txt(chart_txt, chart_type):
                         del attrs['charts'][-1]
                         continue
 
-                    # if notes,  convert -> ([measure, beat, split], abs_beat,
-                    # abs_time, notes [as str ~ '1001'])
+                    # if ssc notes,  convert -> ([measure, beat, split], abs_beat,
+                    # abs_time, notes [as str ~ '10001'])
                     if attr_name == 'notes':
                         attr_val_parsed = calc_note_beats_and_abs_times(
                             latest_chart['offset'], latest_chart['bpms'],
@@ -261,7 +309,6 @@ def parse_chart_txt(chart_txt, chart_type):
                 if attr_name == 'stepstype':
                     first_chart = OrderedDict([(attr_name, attr_val_parsed)])
                     attrs['charts'].append(first_chart)
-
         else:
             attrs[attr_name] = attr_val_parsed
 
