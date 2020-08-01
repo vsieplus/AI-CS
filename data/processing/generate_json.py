@@ -81,8 +81,9 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
         if chart_type == 'ssc':
             chart_filename_clean = ez_name(chart_filename)
         elif chart_type == 'ucs':
-            chart_filename_clean = '_'.join([chart_attrs['title'], chart_attrs['chart_type'][0]
-                + chart_attrs['meter'],chart_attrs['step_artist']])
+            chart_filename_clean = ez_name('_'.join([chart_attrs['title'],
+                chart_attrs['chart_type'][0] + chart_attrs['meter'],
+                chart_attrs['step_artist']]))
         
         if chart_filename_clean in chart_files_clean:
             logging.error('song name conflict: {}, skipping'.format(chart_filename_clean))

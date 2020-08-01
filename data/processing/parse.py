@@ -308,7 +308,7 @@ def parse_ucs_txt(chart_txt):
     
     # represent charts as singleton list
     attrs['charts'] = [{
-        'stepstype': attrs['chart_type'],
+        'stepstype': 'pump-' + attrs['chart_type'],
         'meter': attrs['meter'],
         'credit': attrs['step_artist'],
         'offset': chart_sections[0][1],      # use delay of first section as offset

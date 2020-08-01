@@ -83,7 +83,7 @@ def main():
         'song_types': args.song_types,
         'mixes': pack_names,
         'min_song_bpm': args.min_bpm,
-        'max_song_bpm': args.max_bpm
+        'max_song_bpm': args.max_bpm,
         'chart_type': args.chart_type,
         'chart_authors': args.chart_authors,
         'chart_difficulties': args.chart_difficulties,
