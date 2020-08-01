@@ -58,7 +58,8 @@ def calc_abs_for_beat(offset, bpms, stops, segment_lengths, beat):
     partial_segment_spb = bpm_to_spb(bpms[bpm_idx][1])
     partial_segment = partial_segment_spb * (beat - bpms[bpm_idx][0])
 
-    return full_segment_total + partial_segment - offset + stop_len_cumulative
+    # Add offset to chart to sync w/music [not subtract for PIU ssc files]
+    return full_segment_total + partial_segment + offset + stop_len_cumulative
 
 def calc_note_beats_and_abs_times(offset, bpms, stops, note_data):
     segment_lengths = calc_segment_lengths(bpms)

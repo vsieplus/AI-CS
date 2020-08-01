@@ -106,7 +106,7 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
 
         with open(out_json_path, 'w') as out_f:
             try:
-                out_f.write(json.dumps(out_json, indent=2))
+                out_f.write(json.dumps(out_json))
             except UnicodeDecodeError:
                 logging.error('Unicode error in {}'.format(pack_chart_file))
                 continue

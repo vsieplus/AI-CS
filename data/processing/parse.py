@@ -137,6 +137,9 @@ def ucs_notes_parser(chart_txt, chart_sections, chart_type):
     measures_clean = []    
     section_lengths = []        # track total time for each section
 
+    delay_secs = 0.0
+    previous_sections_time = 0.0
+
     for bpm, delay_ms, beats_per_measure, splits_per_beat, splits_txt in chart_sections:
         bpm = float(bpm)
         delay_ms = float(delay_ms)
@@ -147,39 +150,40 @@ def ucs_notes_parser(chart_txt, chart_sections, chart_type):
         # only first section should use delay
         if curr_section == 0:
             delay_secs = (delay_ms - 100) / float(1000)
-        else:
-            delay_secs = 0.0
 
-        splits = splits_txt.split('\n')
+        splits = splits_txt.splitlines()
         splits_per_measure = splits_per_beat * beats_per_measure
 
         curr_relative_beat = 0
         curr_spb = bpm_to_spb(bpm)
         curr_section_beats = len(splits) / splits_per_beat
 
-        previous_sections_length = sum(section_lengths)
+
+        beat_increment = float(1) / splits_per_beat
+        time_increment = curr_spb * beat_increment
+        curr_section_time = 0.0
 
         for curr_split, notes in enumerate(splits):
-            # split number relative to the current beat
-            relative_split = curr_split % splits_per_measure
-            
-            beat_time = calc_ucs_beat_time(previous_sections_length, 
+            curr_relative_split = curr_split % splits_per_beat
+
+            beat_time = calc_ucs_beat_time(previous_sections_time, 
                 curr_section, curr_spb, curr_relative_beat, delay_secs)
 
-            measures_clean.append([[curr_measure, splits_per_measure, relative_split],
-                curr_absolute_beat, beat_time, notes])
+            measures_clean.append([[curr_measure, splits_per_measure,
+                curr_relative_split], curr_absolute_beat, beat_time, notes])
 
             # increment chart progress
-            beat_increment = float(1) / splits_per_beat
             curr_relative_beat += beat_increment
+            curr_section_time += time_increment
             curr_absolute_beat += beat_increment
 
-            if (curr_split + 1) % splits_per_measure == 0:
+            last_split = curr_split == len(splits) - 1
+
+            if (curr_split + 1) % splits_per_measure == 0 or last_split:
                 curr_measure += 1
         
         curr_section += 1
-        curr_section_time = curr_spb * curr_section_beats
-        section_lengths.append(curr_section_time)
+        previous_sections_time += curr_section_time
     
     return measures_clean
 
