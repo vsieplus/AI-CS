@@ -16,8 +16,8 @@ UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/raw/00-UCS_BASE')
 
 UCS_SECTION_PATTERN = r':BPM=([0-9]+)\n:Delay=([-0-9]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
 UCS_SPLIT_PATTERNS = {
-    'single': r'(([XWMH.]{5}\n)*)',
-    'double': r'(([XWMH.]{10}\n)*)'
+    'single': r'((?:[XWMH.]{5}\n)*)',
+    'double': r'((?:[XWMH.]{10}\n)*)'
 }
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
@@ -137,9 +137,12 @@ def ucs_notes_parser(chart_txt, chart_sections, chart_type):
     measures_clean = []    
     section_lengths = []        # track total time for each section
 
-    for float(bpm), float(delay_ms), int(beats_per_measure), int(splits_per_beat), 
-        splits_txt in chart_sections:
-        
+    for bpm, delay_ms, beats_per_measure, splits_per_beat, splits_txt in chart_sections:
+        bpm = float(bpm)
+        delay_ms = float(delay_ms)
+        beats_per_measure = int(beats_per_measure)
+        splits_per_beat = int(splits_per_beat)
+
         # subtract 100MS from delay to line up notes with audio
         # only first section should use delay
         if curr_section == 0:
@@ -160,13 +163,11 @@ def ucs_notes_parser(chart_txt, chart_sections, chart_type):
             # split number relative to the current beat
             relative_split = curr_split % splits_per_measure
             
-            # only add non-empty splits
-            if len(re.findall('[XMHW]', notes)) > 0:
-                beat_time = calc_ucs_beat_time(previous_sections_length, 
-                    curr_section, curr_spb, curr_relative_beat, delay_secs)
+            beat_time = calc_ucs_beat_time(previous_sections_length, 
+                curr_section, curr_spb, curr_relative_beat, delay_secs)
 
-                measures_clean.append([[curr_measure, splits_per_measure, relative_split],
-                    curr_absolute_beat, beat_time, notes])
+            measures_clean.append([[curr_measure, splits_per_measure, relative_split],
+                curr_absolute_beat, beat_time, notes])
 
             # increment chart progress
             beat_increment = float(1) / splits_per_beat
@@ -187,8 +188,7 @@ def calc_ucs_beat_time(previous_sections, curr_section, curr_spb,
     curr_relative_beat, delay_secs):
     
     curr_partial_section = curr_spb * curr_relative_beat
-    return previous_sections + curr_partial_section + delay
-
+    return previous_sections + curr_partial_section + delay_secs
 
 # for SSC attributes
 ATTR_NAME_TO_PARSER = {
@@ -220,7 +220,7 @@ ATTR_NAME_TO_PARSER = {
     'songtype': str_parser,
     'songcategory': str_parser,
     'volume': int_parser,
-    'displaybpm': float_parser,
+    'displaybpm': str_parser,
     'stops': stops_parser,
     'delays': str_parser,
     'warps': str_parser,
@@ -229,6 +229,7 @@ ATTR_NAME_TO_PARSER = {
     'labels': list_parser(kv_parser(float_parser, str_parser)),
     'lastsecondhint': float_parser,
     'bgchanges': str_parser,
+    'bgchanges2': str_parser,
     'fgchanges': str_parser,
     'keysounds': str_parser,
     'attacks': str_parser,
@@ -274,7 +275,7 @@ def parse_chart_txt(chart_txt, chart_type):
     if chart_type == 'ssc':
         return parse_ssc_txt(chart_txt)
     elif chart_type == 'ucs':
-        return parse_ucs_txt(ucs_txt)
+        return parse_ucs_txt(chart_txt)
     else:
         raise NotImplementedError('Parser for chart type {} not implemented'.format(chart_type))
 
@@ -297,14 +298,15 @@ def parse_ucs_txt(chart_txt):
 
     # each ucs chart section consists of 4 meta-values plus the notes themselves in splits:
     # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
-    chart_sections = re.findall(UCS_SECTION_PATTERN, chart_txt)
+    chart_sections = re.findall(UCS_SECTION_PATTERN + 
+        UCS_SPLIT_PATTERNS[attrs['chart_type']], chart_txt)
     
     # represent charts as singleton list
     attrs['charts'] = [{
         'stepstype': attrs['chart_type'],
         'meter': attrs['meter'],
         'credit': attrs['step_artist'],
-        'offset': chart_sections[0][1]      # use delay of first section as offset
+        'offset': chart_sections[0][1],      # use delay of first section as offset
         'notes': ucs_notes_parser(chart_txt, chart_sections, attrs['chart_type'])
     }]
     
