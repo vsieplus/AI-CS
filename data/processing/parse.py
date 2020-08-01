@@ -260,13 +260,14 @@ ATTR_NAME_TO_PARSER = {
     'notes': ssc_notes_parser,
 }
 
-# (required) chart attributes
-ATTR_CHART = ['notedata', 'chartname', 'stepstype', 'description', 'chartstyle', 
-    'stops', 'warps', 'delays', 'difficulty', 'meter', 'radarvalues', 'credit',
-    'patchinfo', 'offset', 'displaybpm', 'bpms', 'tickcounts', 'combos', 'speeds',
-    'scrolls', 'fakes', 'labels', 'attacks', 'timesignatures', 'notes']
+# (required) chart/song attributes for SSC files
+#ATTR_CHART = ['notedata', 'chartname', 'stepstype', 'description', 'chartstyle', 
+#    'stops', 'warps', 'delays', 'difficulty', 'meter', 'radarvalues', 'credit',
+#    'patchinfo', 'offset', 'displaybpm', 'bpms', 'tickcounts', 'combos', 'speeds',
+#    'scrolls', 'fakes', 'labels', 'attacks', 'timesignatures', 'notes']
 ATTR_CHART_REQUIRED = ['stepstype', 'description', 'meter', 'credit', 'offset',
     'stops', 'bpms', 'speeds', 'notes']
+ATTR_SONG_REQUIRED = ['title', 'artist', 'music', 'genre', 'songtype', 'offset', 'bpms']
 
 # attributes with potentially multiple sets (for each of the chart types)
 ATTR_NOTES = 'notes'
@@ -324,19 +325,18 @@ def parse_ssc_txt(chart_txt):
             logging.warning('Found unexpected attribute {}:{}, ignoring'.format(attr_name, attr_val))
             continue
 
-        # if attribute is 'notes', parse differently depending on chart type
+        # skip parsing non-required attributes
+        if attr_name in ATTR_SONG_REQUIRED:
+            attr_type = 'song'
+        elif attr_name in ATTR_CHART_REQUIRED:
+            attr_type = 'chart'
+        else:
+            continue
+
         attr_val_parsed = ATTR_NAME_TO_PARSER[attr_name](attr_val)
 
-        # check for duplicate song attrs
-        if attr_name in attrs:
-            if attr_val_parsed == attrs[attr_name]:
-                continue
-            else:
-                raise ValueError('Song Attribute {} defined multiple times'.format(attr_name))
-        elif attr_name in ATTR_CHART:
-            if attr_name not in ATTR_CHART_REQUIRED:
-                continue
-
+        # store chart attributes in nested dict
+        if attr_type =='chart':
             if 'charts' in attrs and len(attrs['charts']) > 0:
                 latest_chart = attrs['charts'][-1]
                 latest_chart_attr = next(reversed(latest_chart))
@@ -356,6 +356,15 @@ def parse_ssc_txt(chart_txt):
                     # if ssc notes,  convert -> ([measure, beat, split], abs_beat,
                     # abs_time, notes [as str ~ '10001'])
                     if attr_name == 'notes':
+
+                        # if chart offset/bpm not provided, use global values
+                        if 'offset' not in latest_chart:
+                            latest_chart['offset'] = attrs['offset']
+                        if 'bpms' not in latest_chart:
+                            latest_chart['bpms'] = attrs['bpms']
+                        if 'stops' not in latest_chart:
+                            latest_chart['stops'] = []
+
                         attr_val_parsed = calc_note_beats_and_abs_times(
                             latest_chart['offset'], latest_chart['bpms'],
                             latest_chart['stops'], attr_val_parsed)
@@ -368,6 +377,7 @@ def parse_ssc_txt(chart_txt):
                     first_chart = OrderedDict([(attr_name, attr_val_parsed)])
                     attrs['charts'].append(first_chart)
         else:
+            # store song attributes directly
             attrs[attr_name] = attr_val_parsed
 
     return attrs

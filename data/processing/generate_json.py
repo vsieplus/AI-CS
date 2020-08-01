@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
 def search_for_music(chart_filename, root):
     """Try to find a music file for the corresponding chart file"""
 
+    music_names = []
     for filename in os.listdir(root):
         prefix, ext = os.path.splitext(filename)
         if ext.lower()[1:] in ['mp3', 'ogg']:
@@ -84,7 +85,9 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
                 + chart_attrs['meter'],chart_attrs['step_artist']])
         
         if chart_filename_clean in chart_files_clean:
-            raise ValueError('song name conflict: {}'.format(chart_filename_clean))
+            logging.error('song name conflict: {}, skipping'.format(chart_filename_clean))
+            continue
+
         chart_files_clean.add(chart_filename_clean)
 
         out_json_path = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
@@ -103,7 +106,7 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
 
         with open(out_json_path, 'w') as out_f:
             try:
-                out_f.write(json.dumps(out_json))
+                out_f.write(json.dumps(out_json, indent=2))
             except UnicodeDecodeError:
                 logging.error('Unicode error in {}'.format(pack_chart_file))
                 continue
