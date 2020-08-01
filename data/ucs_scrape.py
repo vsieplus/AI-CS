@@ -22,6 +22,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--end_date', type=str, help='restrict to ucs made up to (YYYY-MM-DD)',
         default=datetime.date.today())
 
+    parser.add_argument('--without_metadata', action='store_true', default=False,
+        help='Use this option to download the bare UCS charts themselves')
+
     return parser.parse_args()
 
 def get_date(date_arg):
@@ -49,7 +52,8 @@ def main():
     process.crawl(ucs_spider.UCS_Spider, pack_name=custom_pack_name,
         step_artists=args.step_artists, min_level=args.min_level,
         max_level=args.max_level, chart_type=args.chart_type, songs=args.songs,
-        start_date=start_date_obj, end_date=end_date_obj, meta_json_path=META_JSON_PATH)        
+        start_date=start_date_obj, end_date=end_date_obj, meta_json_path=META_JSON_PATH,
+        without_metadata=args.without_metadata)        
     process.start()
 
 if __name__ == '__main__':

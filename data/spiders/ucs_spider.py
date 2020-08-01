@@ -35,7 +35,7 @@ class UCS_Spider(scrapy.Spider):
 
     # specific > generic (step_artist > song > level > mix > ...)
     def __init__(self, pack_name, step_artists, min_level, max_level,
-        chart_type, songs, start_date, end_date, meta_json_path):
+        chart_type, songs, start_date, end_date, meta_json_path, without_metadata):
 
         self.pack_name = pack_name
 
@@ -46,6 +46,8 @@ class UCS_Spider(scrapy.Spider):
 
         self.start_date = start_date
         self.end_date = end_date
+
+        self.without_metadata = without_metadata
 
         with open(meta_json_path, 'r') as f:
             self.UCS_METADATA = json.loads(f.read())[0]
@@ -121,7 +123,8 @@ class UCS_Spider(scrapy.Spider):
                 ucs_dl_dict = {**this_ucs_metadata, **{'url': BASE_DL_URL + dl_link, 
                     'name': ucs_code, 'step_artist': stepmaker, 
                     'chart_type': self.chart_type, 'meter': chart_level,
-                    'songtype': 'arcade', 'pack_name': self.pack_name}}
+                    'songtype': 'arcade', 'pack_name': self.pack_name,
+                    'without_metadata': self.without_metadata}}
 
                 self.download_chart(ucs_dl_dict) 
                     
@@ -140,13 +143,14 @@ class UCS_Spider(scrapy.Spider):
         if not os.path.isdir(ucs_dir):
             os.makedirs(ucs_dir)
 
-        self.add_chart_data(chart_txt, ucs_dict, ucs_dir)
+        self.add_chart_data(chart_txt, ucs_dict, ucs_dir, ucs_dict['without_metadata'])
 
     # write the chart data to the specified file
-    def add_chart_data(self, chart_txt, ucs_dict, dir_fp):
+    def add_chart_data(self, chart_txt, ucs_dict, dir_fp, without_metadata):
         ucs_text = ''
-        for k,v in ucs_dict.items():
-            ucs_text += ':{}={}\n'.format(k,v)
+        if not without_metadata:
+            for k,v in ucs_dict.items():
+                ucs_text += ':{}={}\n'.format(k,v)
 
         ucs_text += chart_txt
 
