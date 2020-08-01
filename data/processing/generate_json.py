@@ -64,7 +64,7 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
             chart_attrs = parse_chart_txt(chart_txt, chart_type)
         except Exception as e:
             logging.error('{} in\n{}'.format(e, pack_chart_file))
-            raise e
+            continue
 
         # store music path
         root = os.path.abspath(os.path.join(pack_chart_file, '..'))

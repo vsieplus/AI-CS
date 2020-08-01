@@ -337,7 +337,11 @@ def parse_ssc_txt(chart_txt):
         else:
             continue
 
-        attr_val_parsed = ATTR_NAME_TO_PARSER[attr_name](attr_val)
+        try:
+            attr_val_parsed = ATTR_NAME_TO_PARSER[attr_name](attr_val)
+        except ValueError as e:
+            print('Error while parsing {}. Skipping...'.format(attrs['title']))
+            raise e
 
         # store chart attributes in nested dict
         if attr_type =='chart':
@@ -352,8 +356,8 @@ def parse_ssc_txt(chart_txt):
                         next_chart = OrderedDict([(attr_name, attr_val_parsed)])
                         attrs['charts'].append(next_chart)
                 else:
-                    # skip if a UCS chart in an ssc
-                    if attr_name == 'description' and len(re.findall('ucs', attr_val_parsed)) > 0:
+                    # skip quests/UCS charts in an ssc
+                    if attr_name == 'description' and len(re.findall('ucs|quest', attr_val_parsed)) > 0:
                         del attrs['charts'][-1]
                         continue
 
