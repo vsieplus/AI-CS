@@ -34,23 +34,23 @@ class PlacementCNN(nn.Module):
         result = self.maxPool1d(result)
 
         # [batch, 7, 28]; transpose, then flatten channel/freq. dimensions
-        # shape is now (batch, time, features)
+        # shape is now (batch, timestep, features)
         result = result.transpose(2, 3).flatten(2, 3)
 
         return result
 
 # RNN + MLP part of the model (2nd half); take in processed audio features + chart features
 class PlacementRNN(nn.Module):
-    def __init__(self, num_lstm_layers, hidden_size, num_levels, num_chart_types,
-        dropout=0.5):
+    def __init__(self, num_lstm_layers, num_features, hidden_size=256, dropout=0.5):
         
         super(PlacementRNN, self).__init__()
 
         self.num_lstm_layers = num_lstm_layers
         self.hidden_size = hidden_size
 
-        self.lstm = nn.LSTM(input_size=28 + num_levels + num_chart_types, batch_first=True,
-            hidden_size=hidden_size, num_layers=num_lstm_layers, dropout=dropout)
+        # dropout not applied to output of last lstm layer (need to apply manually)
+        self.lstm = nn.LSTM(input_size=28 + num_features, hidden_size=hidden_size,
+            num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
         self.linear1 = nn.Linear(in_features=hidden_size, out_features=128)
         self.linear2 = nn.Linear(in_features=128, out_features=1)
@@ -60,13 +60,34 @@ class PlacementRNN(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     # processed_audio_input: [batch, 7, 28] (output of PlacementCNN.forward())
-    # diff_level_input: [batch, 28] (one-hot representation of chart level)
-    # chart_type_input: [batch, 2] (one-hot representation of chart type)
-    def forward(self, processed_audio_input, diff_level_input, chart_type_input):
-        pass
+    # chart_features: [batch, num_features] (concat. of one-hot representations)
+    def forward(self, processed_audio_input, chart_features):
+        batch_size = processed_audio_input.size(0)
 
-    def initHidden(self, batch_size, device):
-        return torch.zeros(batch_size, self.hidden_size, device = device)
+        # [batch, 7, 28 + num_features] concat audio input with chart features
+        chart_features = chart_features.repeat(1, 7).view(batch_size, 7, -1)
+        lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
 
-    def initCell(self, batch_size, device):
-        return torch.zeros(batch_size, self.hidden_size, device = device)
+        # [batch, 7, hidden] (output: hidden states from last layer)
+        # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
+        lstm_out, (hn, cn) = self.lstm(lstm_input, initStates(batch_size, device)))
+        
+        # manual dropout to last lstm layer output
+        lstm_out = self.dropout(lstm_out)
+
+        # [batch, hidden] (use last hidden states as input to linear layer)
+        linear_input = lstm_output[:, -1]
+
+        # -> [batch, 128] -> [batch, 1] (2 fully-connected relu layers w/dropout)
+        linear_input = self.dropout(self.relu(self.linear1(linear_input)))
+        linear_output = self.dropout(self.relu(self.linear1(linear_input)))
+
+        # [batch, 1] (convert logits to probabilities in [0, 1])
+        out = self.sigmoid(linear_output)
+
+        return out
+
+    # initial celll/hidden state for lstm
+    def initStates(self, batch_size, device):
+        return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
+                torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device))
