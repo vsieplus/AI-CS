@@ -6,26 +6,24 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
+
+import stepchart
+from placement_model import PlacementCNN, PlacementRNN
 
 ABS_PATH = str(pathlib.Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
 MODELS_DIR = os.path.join(ABS_PATH, 'models')
 
-CHART_PERMUTATIONS = {
-    'pump-single': {
-       #normal:         '01234'
-        'flip':         '43210',
-        'mirror':       '34201',
-        'flip_mirror':  '10243'
-    },
+BATCH_SIZE = 1
 
-    'pump-double': {
-        #normal:        '0123456789'
-        'flip':         '9876543210',
-        'mirror':       '9875643201',
-        'flip_mirror':  '1023465789'
-    }
-}
+PLACEMENT_CRITERION = nn.BCELoss()
+PLACEMENT_EPOCHS = 6
+PLACEMENT_LR = 0.005
+
+SELECTION_CRITERION = nn.CrossEntropyLoss()
+SELECTION_EPOCHS = 6
+SELECTION_LR = 0.005
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -47,40 +45,43 @@ def parse_args() -> argparse.Namespace:
 
     return args
 
-# https://github.com/chrisdonahue/ddc/blob/master/dataset/filter_json.py
-def add_permutations(chart_attrs):
-    for chart in chart_attrs.get('charts'):
-        chart['permutation'] = 'normal'
+# train the placement models with the specified parameters
+def train_placement_batch(cnn, rnn, optimizer, criterion, input):
 
-        chart_type = chart['stepstype']
-        if chart_type == 'pump-routine':
-            continue
+    # bptt https://discuss.pytorch.org/t/implementing-truncated-backpropagation-through-time/15500/29
+    # unrolling https://machinelearningmastery.com/rnn-unrolling/
 
-        for permutation_name, permutation in CHART_PERMUTATIONS[chart_type].items():
-            chart_copy = copy.deepcopy(chart)
-            notes_cleaned = []
-            for meas, beat, time, note in chart_copy['notes']:
 
-                # permutation numbers signify moved location
-                #   ex) note = '10010'
-                #       perm = '43210' -> (flip horizontally)
-                #       note_new = '01001'
+    cnn.train()
+    rnn.train()
 
-                note_new = ''.join([note[int(permutation[i])] for i in range(len(permutation))])
+def train_selection_batch(rnn, optimizer, criterion, input):
+    pass
 
-                notes_cleaned.append((meas, beat, time, note_new))
-                chart_copy['notes'] = notes_cleaned
-                chart_copy['permutation'] = permutation_name
+# train on a single batch of examples
+def train_batch(batch, early_stopping=True):
+    pass
 
-            chart_attrs['charts'].append(chart_copy)
-    return chart_attrs
+# full training process from placement -> selection
+def train(num_epochs, batch_size, early_stopping=True):
+    pass
 
 def main():
     args = parse_args()
 
-    # Retrieve data
+    # Retrieve/prepare data
 
-    # Train placement model
+    
+    # train_size = int(0.8 * len(full_dataset))
+    # test_size = len(full_dataset) - train_size
+    # train_data, valid_data, test_data = torch.utils.data.random_split(full_dataset, [train_size, test_size])
+
+    # Create + train placement model
+    cnn = PlacementCNN()
+    rnn = PlacementRNN(num_lstm_layers=2, num_features=30)
+
+    placement_optim = optim.Adam(list(cnn.parameters()) + list(rnn.parameters()), lr=PLACEMENT_LR)
+
 
     # Train selection model
 
