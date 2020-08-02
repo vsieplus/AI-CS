@@ -33,16 +33,21 @@ def extract_audio_feats(waveform, sample_rate, n_ffts=[1024, 2048, 4096],
             n_fft=n_fft, pad=pad, n_mels=n_mels, hop_length=hop_length)(waveform)
         mel_specgram = mel_specgram.squeeze(0)
 
-        # scale outputs logarithmically [avoid -inf values by adding 1e-16]
-        log_mel_specgram = torch.log(mel_specgram + 1e-16)
+        # scale outputs logarithmically [avoid -inf values by doing abs + adding 1e-16]
+        log_mel_specgram = torch.log(torch.abs(mel_specgram) + 1e-16)
 
         audio_feats.append(mel_specgram)
     
-    # final shape: [n_mels, time, len(n_ffts)] ~ default: [80, ?, 3]
+    # shape: [n_mels, time, len(n_ffts)] ~ default: [80, ?, 3] -> [?, 80, 3] (post-transpose)
     audio_feats = torch.stack(audio_feats, dim=-1)
+    audio_feats = audio_feats.transpose(0, 1)
 
     # standard normalization across frequency bands
-    for freq_band in range(audio_feats.size(0)):
-        audio_feats[freq_band] = normalize_features(audio_feats[freq_band])
+    for timestep in range(audio_feats.size(0)):
+        for freq_band in range(audio_feats.size(1)):
+            audio_feats[timestep, freq_band] = normalize_features(audio_feats[timestep, freq_band])
+
+    # transpose -> final shape: [3, ?, 80]
+    audio_feats = audio_feats.transpose(0, 2).transpose(1, 2)
 
     return audio_feats
