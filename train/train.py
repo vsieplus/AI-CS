@@ -7,22 +7,31 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 
-import stepchart
+from stepchart import StepchartDataset, get_splits
 from placement_model import PlacementCNN, PlacementRNN
+from selection_model import SelectionRNN
 
 ABS_PATH = str(pathlib.Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
 MODELS_DIR = os.path.join(ABS_PATH, 'models')
 
 BATCH_SIZE = 1
+NUM_EPOCHS = 5
 
-PLACEMENT_CRITERION = nn.BCELoss()
-PLACEMENT_EPOCHS = 6
+PLACEMENT_CRITERION = nn.BCEWithLogitsLoss()
 PLACEMENT_LR = 0.005
 
+PLACEMENT_CHANNELS = [3, 10]
+PLACEMENT_FILTERS = [10, 20]
+PLACEMENT_KERNEL_SIZES = [(7, 3), (3, 3)]
+
+PLACEMENT_HIDDEN_SIZE = 256
+NUM_PLACEMENT_LSTM_LAYERS = 2
+NUM_PLACEMENT_FEATURES = 30
+
 SELECTION_CRITERION = nn.CrossEntropyLoss()
-SELECTION_EPOCHS = 6
 SELECTION_LR = 0.005
 
 def parse_args() -> argparse.Namespace:
@@ -46,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     return args
 
 # train the placement models with the specified parameters
-def train_placement_batch(cnn, rnn, optimizer, criterion, input):
+def train_placement_batch(cnn, rnn, optimizer, batch):
 
     # bptt https://discuss.pytorch.org/t/implementing-truncated-backpropagation-through-time/15500/29
     # unrolling https://machinelearningmastery.com/rnn-unrolling/
@@ -55,36 +64,58 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, input):
     cnn.train()
     rnn.train()
 
-def train_selection_batch(rnn, optimizer, criterion, input):
-    pass
+    
+def train_selection_batch(rnn, optimizer, batch, lstm_hiddens=None):
+    rnn.train()
 
-# train on a single batch of examples
-def train_batch(batch, early_stopping=True):
-    pass
+def evaluate_placement_batch(cnn, rnn, batch):
+    cnn.eval()
+    rnn.eval()
+
+    
+def evaluate_selection_batch(rnn, batch):
+    rnn.eval()
 
 # full training process from placement -> selection
-def train(num_epochs, batch_size, early_stopping=True):
-    pass
+def train(train_iter, valid_iter, num_epochs, device, early_stopping=True):
+    # setup models, optimizers
+    placement_cnn = PlacementCNN(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES)
+    placement_rnn = PlacementRNN(NUM_PLACEMENT_LSTM_LAYERS, NUM_PLACEMENT_FEATURES, PLACEMENT_HIDDEN_SIZE)
+    placement_optim = optim.Adam(list(cnn.parameters()) + list(rnn.parameters()), lr=PLACEMENT_LR)
+
+    selection_rnn = SelectionRNN(pass)
+    selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
+
+    print('Starting training..')
+    for epoch in range(num_epochs):
+        print('Epoch: {}'.fomrat(epoch))
+
+        for i, batch in enumerate(train_iter):
+            placement_input = batch['song']['...']
+
+            avg_placement_loss, lstm_hiddens = train_placement_batch(placement_cnn,
+                placement_rnn, placement_optim, batch)
+
+            selection_input = batch['steps']['..']
+            avg_selection_loss = train_selection_batch(selection_rnn, )
+
+
+
 
 def main():
     args = parse_args()
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     # Retrieve/prepare data
-
+    print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_dir)))
+    dataset = StepchartDataset(args.dataset_dir)
     
-    # train_size = int(0.8 * len(full_dataset))
-    # test_size = len(full_dataset) - train_size
-    # train_data, valid_data, test_data = torch.utils.data.random_split(full_dataset, [train_size, test_size])
+    train_data, valid_data, _ = get_splits(dataset)
+    train_iter = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
+    valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, shuffle=True)
 
-    # Create + train placement model
-    cnn = PlacementCNN()
-    rnn = PlacementRNN(num_lstm_layers=2, num_features=30)
-
-    placement_optim = optim.Adam(list(cnn.parameters()) + list(rnn.parameters()), lr=PLACEMENT_LR)
-
-
-    # Train selection model
-
+    train(train_iter, valid_iter, NUM_EPOCHS, device)
 
 if __name__ == '__main__':
     main()
