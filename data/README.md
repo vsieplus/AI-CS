@@ -98,5 +98,5 @@ song type (arcade/remix/...) and more. You may customize these parameters to bui
 your own datasets. This script will also prompt you for a dataset **name** and
 ask which packs to choose songs and charts from.
 
-The resulting files will be stored in `dataset/subsets/name` and will act as metadata
+The resulting file will be stored in `dataset/subsets/name.json` and will act as metadata
 to be used when training is initiated for a particular model (see `train/`).

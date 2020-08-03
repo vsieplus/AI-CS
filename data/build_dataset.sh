@@ -4,7 +4,6 @@
 echo 'Building dataset...'
 python3 processing/dataset_json.py \
     --splits='0.8,0.1,0.1' \
-    --splitnames='train,valid,test' \
     --shuffle \
     --shuffle_seed=1949 \
     --song_types arcade remix fullsong shortcut \
