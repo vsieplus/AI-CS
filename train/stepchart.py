@@ -3,7 +3,9 @@
 import json
 import os
 
+import torch
 from torch.utils.data import Dataset, random_split
+
 from extract_audio_feats import load_audio, extract_audio_feats
 
 # https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
@@ -79,7 +81,7 @@ class StepchartDataset(Dataset):
 
             for chart_idx in chart_indices:
                 self.charts.append(Chart(attrs['charts'][chart_idx],
-                    self.songs[song_name], orig_filetype))
+                    self.songs[song_name], orig_filetype, self.permutations))
     
     # determine which charts in the given attrs belongs in this dataset
     # return list of indices, w/length between 0 <= ... <= len(attrs['charts'])
@@ -117,8 +119,6 @@ class StepchartDataset(Dataset):
 
         return chart_indices
 
-            
-
 class Song(object):
     """A song object, corresponding to some audio file. May be relied on by
     multiple charts."""
@@ -141,75 +141,108 @@ class Song(object):
         self.audio_feats = extract_audio_feats(waveform, sample_rate)
 
 
+CHART_PERMUTATIONS = {
+    'pump-single': {
+    #normal:         '01234'
+        'flip':         '43210',
+        'mirror':       '34201',
+        'flip_mirror':  '10243'
+    },
+
+    'pump-double': {
+        #normal:        '0123456789'
+        'flip':         '9876543210',
+        'mirror':       '9875643201',
+        'flip_mirror':  '1023465789'
+    }
+}
+
+STEP_PATTERNS = {
+    'ucs': re.compile('[XMHW]'),
+    'ssc': re.compile('[1-3]')
+}
+
+N_CHART_TYPES = 2
+N_LEVELS = 28
+MS_PER_FRAME = 100
+
+UCS_SSC_DICT = {
+    '.': '0',
+    'X': '1',
+    'M': '2',   # start hold
+    'H': '0',   # hold
+    'W': '3'    # release hold
+}
+
 class Chart(object):
     """A chart object, with associated data. Represents a single example"""
-    CHART_PERMUTATIONS = {
-        'pump-single': {
-        #normal:         '01234'
-            'flip':         '43210',
-            'mirror':       '34201',
-            'flip_mirror':  '10243'
-        },
+    
+    # convert ucs steps to ssc
+    def ucs_to_ssc(cls, steps):
+        ssc_steps = ''
+        for note in steps:
+            ssc_steps += UCS_SSC_DICT[note]
+        return ssc_steps
 
-        'pump-double': {
-            #normal:        '0123456789'
-            'flip':         '9876543210',
-            'mirror':       '9875643201',
-            'flip_mirror':  '1023465789'
-        }
-    }
+    # convert a sequence of steps ['00100', '10120', ...] -> input tensor
+    def sequence_to_tensor(cls, sequence):
+        pass
 
-    N_CHART_TYPES = 2
-    N_LEVELS = 28
-
-    def __init__(self, chart_attrs, song, filetype):
+    def __init__(self, chart_attrs, song, filetype, permuatations):
         self.song = song
         self.filetype = filetype
 
-        self.chart_type = chart_attrs['stepstype'] 
-        self.level = chart_attrs['meter']
         self.step_artist = chart_attrs['credit']
+        self.level = chart_attrs['meter']
+        self.chart_type = chart_attrs['stepstype']
+        assert(self.chart_type in CHART_PERMUTATIONS)
+
+        # concat one-hot encodings of chart_type/level
+        chart_type_onehot = torch.zeros(N_CHART_TYPES).scatter_(0,
+            1 if self.chart_type == "pump-double" else 0, 1)
+        level_oneshot = torch.zeros(N_LEVELS).scatter_(0, self.level - 1, 1)
+        self.chart_feats = torch.cat((chart_type_onehot, level_oneshot), dim=-1)
 
         self.notes = chart_attrs['notes']
+        self.permutations = permutations
+
+        self.parse_notes()
+
+    def parse_notes(self):
+        self.step_frames = []
+        self.step_placements = []
+
+        # track non-empty steps + relevant features
+        self.step_sequences = [[] for _ in range(len(self.permutations))]
         
-        self.load_placement_sequence()
-        self.load_note_sequence()
+        for _, _, time, steps in self.notes
+            # list containing absolute frame numbers corresponding to each split
+            self.step_frames.append(int(round(time * MS_PER_FRAME)))
+        
+            # for each frame, 0 = no step, 1 = some step
+            step_this_frame = STEP_PATTERNS[self.filetype].search(steps)
+            self.step_placements.append(step_this_frame)
 
-    def load_placement_sequence(self):
-        pass
-
-    def load_note_sequence(self):
-        pass
+            for i, permutation_type in enumerate(self.permutations):
+                self.step_sequences[i].append(self.permute_steps(steps, permutation_type))
+        
+        self.step_frames = torch.tensor(self.step_frames)
+        self.step_placements = torch.tensor(self.step_placements, dtype=torch.uint8)
+        self.step_sequences = [Chart.sequence_to_tensor(seq) for seq in self.step_sequences]
 
     # return tensor of audio feats for this chart
     def get_audio_feats(self):
         return self.song.audio_feats
 
-
     # https://github.com/chrisdonahue/ddc/blob/master/dataset/filter_json.py
-    def add_permutations(chart_attrs):
-        for chart in chart_attrs.get('charts'):
-            chart['permutation'] = 'normal'
+    def permute_steps(self, steps, permutation_type):  
+        # permutation numbers signify moved location
+        #   ex) steps = '10010'
+        #       perm = '43210' -> (flip horizontally)
+        #       steps_new = '01001'
+        permutation = CHART_PERMUTATIONS[self.chart_type][permutation_type]
 
-            chart_type = chart['stepstype']
-            if chart_type == 'pump-routine':
-                continue
+        if self.filetype == 'ucs':
+            steps = Chart.ucs_to_ssc(steps)
 
-            for permutation_name, permutation in CHART_PERMUTATIONS[chart_type].items():
-                chart_copy = copy.deepcopy(chart)
-                notes_cleaned = []
-                for meas, beat, time, note in chart_copy['notes']:
-
-                    # permutation numbers signify moved location
-                    #   ex) note = '10010'
-                    #       perm = '43210' -> (flip horizontally)
-                    #       note_new = '01001'
-
-                    note_new = ''.join([note[int(permutation[i])] for i in range(len(permutation))])
-
-                    notes_cleaned.append((meas, beat, time, note_new))
-                    chart_copy['notes'] = notes_cleaned
-                    chart_copy['permutation'] = permutation_name
-
-                chart_attrs['charts'].append(chart_copy)
-        return chart_attrs
+        return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
