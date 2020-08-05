@@ -6,16 +6,18 @@ import torch.nn as nn
 
 # CNN part of the model takes in raw audio features (first half)
 class PlacementCNN(nn.Module):
-    def __init__(self, ):
+    # params define the two convolution layers
+    def __init__(self, in_channels, num_filters, kernel_sizes):
+        
         super(PlacementCNN, self).__init__()
 
-        self.hidden_size = hidden_size
+        # conv. layer filter sizes [7, 3]/[3, 3] ~ [time, frequency] as H/W dims
+        self.convLayer1 = nn.Conv2d(in_channels=in_channels[0],
+            out_channels=num_filters[0], kernel_size=kernel_sizes[0])
+        self.convLayer2 = nn.Conv2d(in_channels=in_channels[1],
+            out_channels=num_filters[1], kernel_size=kernel_sizes[1])
 
-        # conv. layer filter sizes [7, 3]/[3, 3] ~ [time, frequency] as Height/Width dimensions
-        self.convLayer1 = nn.Conv2d(in_channels=3, out_channels=10, kernel_size=(7,3))
-        self.convLayer2 = nn.Conv2d(in_channels=10 , out_channels=20, kernel_size=(3,3))
-
-        # after each convLayer; maxPool2d only in frequency dim. -> equivalent to maxPool1d
+        # after each convLayer; maxPool2d only in frequency dim. -> ~ maxPool1d
         self.relu = nn.ReLU()
         self.maxPool1d = nn.MaxPool2d(kernel_size=(1, 3), stride=(1, 3))
 
@@ -41,8 +43,7 @@ class PlacementCNN(nn.Module):
 
 # RNN + MLP part of the model (2nd half); take in processed audio features + chart features
 class PlacementRNN(nn.Module):
-    def __init__(self, num_lstm_layers, num_features, hidden_size=256, dropout=0.5):
-        
+    def __init__(self, num_lstm_layers, num_features, hidden_size, dropout=0.5):
         super(PlacementRNN, self).__init__()
 
         self.num_lstm_layers = num_lstm_layers
@@ -56,8 +57,6 @@ class PlacementRNN(nn.Module):
         self.linear2 = nn.Linear(in_features=128, out_features=1)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
-
-        self.sigmoid = nn.Sigmoid()
 
     # processed_audio_input: [batch, 7, 28] (output of PlacementCNN.forward())
     # chart_features: [batch, num_features] (concat. of one-hot representations)
@@ -82,10 +81,8 @@ class PlacementRNN(nn.Module):
         linear_input = self.dropout(self.relu(self.linear1(linear_input)))
         linear_output = self.dropout(self.relu(self.linear1(linear_input)))
 
-        # [batch, 1] (convert logits to probabilities in [0, 1])
-        out = self.sigmoid(linear_output)
-
-        return out
+        # [batch, 1] (return logits directly)
+        return linear_output
 
     # initial celll/hidden state for lstm
     def initStates(self, batch_size, device):

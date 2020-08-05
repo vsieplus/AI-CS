@@ -60,10 +60,15 @@ def train_placement_batch(cnn, rnn, optimizer, batch):
     # bptt https://discuss.pytorch.org/t/implementing-truncated-backpropagation-through-time/15500/29
     # unrolling https://machinelearningmastery.com/rnn-unrolling/
 
-
     cnn.train()
     rnn.train()
 
+
+
+    chart_types = batch.chart_type
+    chart_levels = batch.level
+
+#    chart_feats_onehot = torch.zeros(batch_size, num_feats).scatter(1, ..., 1)
     
 def train_selection_batch(rnn, optimizer, batch, lstm_hiddens=None):
     rnn.train()
@@ -72,12 +77,13 @@ def evaluate_placement_batch(cnn, rnn, batch):
     cnn.eval()
     rnn.eval()
 
-    
 def evaluate_selection_batch(rnn, batch):
     rnn.eval()
 
 # full training process from placement -> selection
-def train(train_iter, valid_iter, num_epochs, device, early_stopping=True):
+def train(train_iter, valid_iter, num_epochs, device, early_stopping=True,
+    print_every_x_batch=10, validate_every_x_epoch=3):
+
     # setup models, optimizers
     placement_cnn = PlacementCNN(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES)
     placement_rnn = PlacementRNN(NUM_PLACEMENT_LSTM_LAYERS, NUM_PLACEMENT_FEATURES, PLACEMENT_HIDDEN_SIZE)
@@ -91,15 +97,14 @@ def train(train_iter, valid_iter, num_epochs, device, early_stopping=True):
         print('Epoch: {}'.fomrat(epoch))
 
         for i, batch in enumerate(train_iter):
-            placement_input = batch['song']['...']
+            placement_batch = batch['song']['...']
 
             avg_placement_loss, lstm_hiddens = train_placement_batch(placement_cnn,
                 placement_rnn, placement_optim, batch)
 
-            selection_input = batch['steps']['..']
-            avg_selection_loss = train_selection_batch(selection_rnn, )
-
-
+            selection_batch = batch['steps']['..']
+            avg_selection_loss = train_selection_batch(selection_rnn, selection_optim,
+                selection_batch, lstm_hiddens)
 
 
 def main():
