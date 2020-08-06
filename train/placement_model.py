@@ -41,7 +41,7 @@ class PlacementCNN(nn.Module):
 
         return result
 
-# RNN + MLP part of the model (2nd half); take in processed audio features + chart features
+# RNN + MLP part of the model (2nd half); take in processed audio features + chart type/level
 class PlacementRNN(nn.Module):
     def __init__(self, num_lstm_layers, num_features, hidden_size, dropout=0.5):
         super(PlacementRNN, self).__init__()
@@ -62,17 +62,21 @@ class PlacementRNN(nn.Module):
     # chart_features: [batch, num_features] (concat. of one-hot representations)
     def forward(self, processed_audio_input, chart_features):
         batch_size = processed_audio_input.size(0)
+        seq_len = processed_audio_input.size(1)
 
         # [batch, 7, 28 + num_features] concat audio input with chart features
-        chart_features = chart_features.repeat(1, 7).view(batch_size, 7, -1)
+        chart_features = chart_features.repeat(1, seq_len).view(batch_size, seq_len, -1)
         lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
 
-        # [batch, 7, hidden] (output: hidden states from last layer)
+        # [batch, 7, hidden] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
         lstm_out, (hn, cn) = self.lstm(lstm_input, initStates(batch_size, device)))
         
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
+
+        # hidden state for current frame (save for later use in selection model)
+        curr_frame_hidden = lstm_out[:, int(lstm_out.size(1)/2)]
 
         # [batch, hidden] (use last hidden states as input to linear layer)
         linear_input = lstm_output[:, -1]
@@ -81,8 +85,8 @@ class PlacementRNN(nn.Module):
         linear_input = self.dropout(self.relu(self.linear1(linear_input)))
         linear_output = self.dropout(self.relu(self.linear1(linear_input)))
 
-        # [batch, 1] (return logits directly)
-        return linear_output
+        # [batch, 1] (return logits directly, along hidden state for curr. [middle] frame)
+        return linear_output, curr_frame_hidden
 
     # initial celll/hidden state for lstm
     def initStates(self, batch_size, device):
