@@ -324,6 +324,7 @@ def parse_ucs_txt(chart_txt):
 # parse text from an ssc file
 def parse_ssc_txt(chart_txt):
     attrs = {}
+    attrs['charts'] = [OrderedDict([])]
 
     # parse each attribute in the txt
     for attr_name, attr_val in SSC_CHART_ATTR_PATTERN.findall(chart_txt):
@@ -349,45 +350,34 @@ def parse_ssc_txt(chart_txt):
 
         # store chart attributes in nested dict
         if attr_type =='chart':
-            if 'charts' in attrs and len(attrs['charts']) > 0:
-                latest_chart = attrs['charts'][-1]
+            latest_chart = attrs['charts'][-1]
+
+            chart_empty = len(latest_chart) == 0
+            if not chart_empty:
                 latest_chart_attr = next(reversed(latest_chart))
 
-                # check if last chart finished
-                if latest_chart_attr == 'notes':
-                    # start new chart if applicable
-                    if attr_name == 'stepstype':
-                        next_chart = OrderedDict([(attr_name, attr_val_parsed)])
-                        attrs['charts'].append(next_chart)
-                else:
-                    # skip quests/UCS charts in an ssc
-                    if attr_name == 'description' and re.findall('ucs|quest', attr_val_parsed):
-                        del attrs['charts'][-1]
-                        continue
+            # check if last chart finished -> create new
+            if not chart_empty and latest_chart_attr == 'notes' and attr_name == 'stepstype':
+                next_chart = OrderedDict([(attr_name, attr_val_parsed)])
+                attrs['charts'].append(next_chart)
+            else:
+                # if ssc notes,  convert -> ([measure, beat, split], abs_beat,
+                # abs_time, notes [as str ~ '10001'])
+                if attr_name == 'notes':
 
-                    # if ssc notes,  convert -> ([measure, beat, split], abs_beat,
-                    # abs_time, notes [as str ~ '10001'])
-                    if attr_name == 'notes':
+                    # if chart offset/bpm not provided, use global values
+                    if 'offset' not in latest_chart:
+                        latest_chart['offset'] = attrs['offset']
+                    if 'bpms' not in latest_chart:
+                        latest_chart['bpms'] = attrs['bpms']
+                    if 'stops' not in latest_chart:
+                        latest_chart['stops'] = []
 
-                        # if chart offset/bpm not provided, use global values
-                        if 'offset' not in latest_chart:
-                            latest_chart['offset'] = attrs['offset']
-                        if 'bpms' not in latest_chart:
-                            latest_chart['bpms'] = attrs['bpms']
-                        if 'stops' not in latest_chart:
-                            latest_chart['stops'] = []
-
-                        attr_val_parsed = calc_note_beats_and_abs_times(
-                            latest_chart['offset'], latest_chart['bpms'],
-                            latest_chart['stops'], attr_val_parsed)
-                    
-                    latest_chart[attr_name] = attr_val_parsed
-            else:                
-                attrs['charts'] = []
-
-                if attr_name == 'stepstype':
-                    first_chart = OrderedDict([(attr_name, attr_val_parsed)])
-                    attrs['charts'].append(first_chart)
+                    attr_val_parsed = calc_note_beats_and_abs_times(
+                        latest_chart['offset'], latest_chart['bpms'],
+                        latest_chart['stops'], attr_val_parsed)
+                
+                latest_chart[attr_name] = attr_val_parsed
         else:
             # store song attributes directly
             attrs[attr_name] = attr_val_parsed
