@@ -24,13 +24,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--choose', dest='choose', action='store_true', help='If set, choose from list of packs')
 
     # song-filtering
-    parser.add_argument('--song_types', type=str, help='song types to incluce; if empty no filter',
+    parser.add_argument('--song_types', type=str, help='song types to include; if empty no filter',
         choices = ['arcade', 'fullsong', 'remix', 'shortcut'], nargs='+')
 
     # chart-filtering
     parser.add_argument('--chart_type', type=str, help='pick chart type for this dataset',
-        choices = ['pump-single', 'pump-double'])
-    parser.add_argument('--chart_authors', type=str, help='step chart authors to include if known, no filter if empty',
+        choices = ['pump-single', 'pump-double'], required=True)
+    parser.add_argument('--step_artists', type=str, help='step chart authors to include if known, no filter if empty',
         nargs='+')
     parser.add_argument('--chart_difficulties', type=str, help='Whitelist of chart difficulties; if empty, no filter')
     parser.add_argument('--min_difficulty', type=int, help='Min chart difficulty')
@@ -38,22 +38,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--min_bpm', type=int, help='Minimum song bpm')
     parser.add_argument('--max_bpm', type=int, help='Maximum song bpm')
     parser.add_argument('--permutations', type=str, help='List of permutation types to include in output',
-        choices = ['flip', 'mirror', 'flip_mirror'], nargs='+')
+        choices = ['flip', 'mirror', 'flip_mirror'], nargs='+') # for data augmentation
 
     parser.set_defaults(
         json_dir=DEFAULT_JSON_PATH,
         datasets_dir=DEFAULT_DATASETS_PATH,
-        chart_authors=[],
+        step_artists=[],
         chart_difficulties=[],
         choose=True)
     
     return parser.parse_args()
 
 def display_args(args):
-    print('Including song types:', args.song_types)
+    print('\nIncluding song types:', args.song_types)
     print('Using chart type:', args.chart_type)
-    if(len(args.chart_authors) > 0):
-        print('Limiting to chart authors:', args.chart_authors)
+    if(len(args.step_artists) > 0):
+        print('Limiting to chart authors:', args.step_artists)
     if(len(args.chart_difficulties) > 0):
         print('Using chart difficulties:', args.chart_difficulties)
     print('Min. chart difficulty:', args.min_difficulty)
@@ -64,8 +64,6 @@ def main():
     args = parse_args()
     dataset_name = input('Please enter a name for this dataset: ')
     dataset_name = ez_name(dataset_name)
-
-    display_args(args)
 
     if not os.path.isdir(args.datasets_dir):
         os.makedirs(args.datasets_dir)
@@ -79,6 +77,8 @@ def main():
 
     pack_names = get_subdirs(args.json_dir, args.choose)
 
+    display_args(args)
+
     json_fps = []
     for pack_name in pack_names:
         pack_dir = os.path.join(args.json_dir, pack_name)
@@ -91,6 +91,16 @@ def main():
 
         json_fps.extend(sub_fps)
 
+    if not args.step_artists:
+        args.step_artists = set()
+        for fp in json_fps:
+            with open(fp, 'r') as f:
+                chart_data = json.loads(f.read())
+            for chart in chart_data['charts']:
+                if 'credit' in chart:
+                    args.step_artists.add(chart['credit'])
+        args.step_artists = list(args.step_artists)
+
     dataset_metadata = {
         'dataset_name': dataset_name,
         'song_types': args.song_types,
@@ -98,7 +108,7 @@ def main():
         'min_song_bpm': args.min_bpm,
         'max_song_bpm': args.max_bpm,
         'chart_type': args.chart_type,
-        'chart_authors': args.chart_authors,
+        'step_artists': args.step_artists,
         'chart_difficulties': args.chart_difficulties,
         'min_chart_difficulty': args.min_difficulty,
         'max_chart_difficulty': args.max_difficulty,
@@ -112,6 +122,8 @@ def main():
         f.write(json.dumps(dataset_metadata, indent=2))
     
     print('Dataset "{}" saved to {}'.format(dataset_name, os.path.relpath(dataset_json)))
+    print('Total number of chart files: ', len(json_fps))
+    print('Included known step artists: ', args.step_artists)
 
 if __name__ == '__main__':
     main()

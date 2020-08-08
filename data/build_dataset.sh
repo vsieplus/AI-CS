@@ -7,7 +7,6 @@ python3 processing/dataset_json.py \
     --shuffle \
     --shuffle_seed=1949 \
     --song_types arcade remix fullsong shortcut \
-    --chart_type=pump-single \
     --min_difficulty=1 \
     --max_difficulty=28 \
     --min_bpm=0 \
