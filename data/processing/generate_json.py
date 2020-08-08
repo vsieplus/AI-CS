@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
         default=str(ABS_PATH) + '/../dataset/raw')
     parser.add_argument('--out_dir', type=str, help='output directory',
         default = DEFAULT_OUT_PATH)
-    parser.add_argument('--choose', action='store_true', help='select specific packs', default=False)
+    parser.add_argument('--choose', type=bool, help='select specific packs', default=True)
     
     return parser.parse_args()
 

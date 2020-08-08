@@ -14,11 +14,14 @@ from pathlib import Path
 ABS_PATH = Path(__file__).parent.absolute()
 UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/raw/00-UCS_BASE')
 
-UCS_SECTION_PATTERN = r':BPM=([0-9]+)\n:Delay=([-0-9]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
+UCS_SECTION_PATTERN = r':BPM=([0-9.]+)\n:Delay=([-0-9.]+)\n:Beat=([0-9]+)\n:Split=([0-9]+)\n'
 UCS_SPLIT_PATTERNS = {
     'single': r'((?:[XWMH.]{5}\n)*)',
     'double': r'((?:[XWMH.]{10}\n)*)'
 }
+
+UCS_CHART_ATTR_PATTERN = re.compile(r':([a-z_]*)=(.*)')
+SSC_CHART_ATTR_PATTERN = re.compile(r'#([^:]*):([^;]*);')
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
 bool_parser = lambda x: True if x.strip() == 'YES' else False
@@ -289,7 +292,7 @@ def parse_ucs_txt(chart_txt):
     attrs = {}
 
     # first parse meta chart attributes (names should be all lowercase or has '_')
-    for attr_name, attr_val in re.findall(r':([a-z_]*)=(.*)', chart_txt):
+    for attr_name, attr_val in UCS_CHART_ATTR_PATTERN.findall(chart_txt):
         if attr_name.islower():
             attrs[attr_name] = attr_val
 
@@ -303,8 +306,9 @@ def parse_ucs_txt(chart_txt):
 
     # each ucs chart section consists of 4 meta-values plus the notes themselves in splits:
     # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
-    chart_sections = re.findall(UCS_SECTION_PATTERN + 
-        UCS_SPLIT_PATTERNS[attrs['chart_type']], chart_txt)
+    chart_sections = re.findall(UCS_SECTION_PATTERN + UCS_SPLIT_PATTERNS[attrs['chart_type']], chart_txt)
+    
+    #print(chart_sections[0][1])
     
     # represent charts as singleton list
     attrs['charts'] = [{
@@ -322,7 +326,7 @@ def parse_ssc_txt(chart_txt):
     attrs = {}
 
     # parse each attribute in the txt
-    for attr_name, attr_val in re.findall(r'#([^:]*):([^;]*);', chart_txt):
+    for attr_name, attr_val in SSC_CHART_ATTR_PATTERN.findall(chart_txt):
         attr_name = attr_name.lower()
 
         if attr_name not in ATTR_NAME_TO_PARSER:
@@ -357,7 +361,7 @@ def parse_ssc_txt(chart_txt):
                         attrs['charts'].append(next_chart)
                 else:
                     # skip quests/UCS charts in an ssc
-                    if attr_name == 'description' and len(re.findall('ucs|quest', attr_val_parsed)) > 0:
+                    if attr_name == 'description' and re.findall('ucs|quest', attr_val_parsed):
                         del attrs['charts'][-1]
                         continue
 
