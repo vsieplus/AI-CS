@@ -76,12 +76,12 @@ class StepchartDataset(Dataset):
             song_name = attrs['title']
             if song_name not in self.songs:
                 self.songs[song_name] = Song(attrs['music_fp'], song_name,
-                    attrs['artist'], attrs['genre'], attrs['songtype'], attrs['bpms']) 
-                    #TODO add diplay bpms to chart json outputs
+                    attrs['artist'], attrs['genre'], attrs['songtype'])
 
             for chart_idx in chart_indices:
-                self.charts.append(Chart(attrs['charts'][chart_idx],
-                    self.songs[song_name], orig_filetype, self.permutations))
+                for permutation in self.permutations:
+                    self.charts.append(Chart(attrs['charts'][chart_idx],
+                        self.songs[song_name], orig_filetype, self.permutation))
     
     # determine which charts in the given attrs belongs in this dataset
     # return list of indices, w/length between 0 <= ... <= len(attrs['charts'])
@@ -101,7 +101,7 @@ class StepchartDataset(Dataset):
 
                 chart_level = chart_attrs['meter']
                 if self.chart_difficulties:
-                    valid_level = chart_level  in self.chart_difficulties
+                    valid_level = chart_level in self.chart_difficulties
                 else:
                     valid_level = self.min_chart_difficulty <= chart_level
                         and chart_level <= self.max_chart_difficulty
@@ -123,13 +123,12 @@ class Song(object):
     """A song object, corresponding to some audio file. May be relied on by
     multiple charts."""
 
-    def __init__(self, audio_fp, title, artist, genre, songtype, bpms):
+    def __init__(self, audio_fp, title, artist, genre, songtype):
         self.audio_fp = audio_fp
         self.title = title
         self.artist = artist
         self.genre = genre
         self.songtype = songtype
-        self.bpms = bpms
 
         self.load_audio()
 
@@ -164,20 +163,27 @@ STEP_PATTERNS = {
 
 N_CHART_TYPES = 2
 N_LEVELS = 28
-MS_PER_FRAME = 100
+AUDIO_FRAME_RATE = 100 # 10 ms per (audio) frame
 
 UCS_SSC_DICT = {
-    '.': '0',
-    'X': '1',
+    '.': '0',   # no step
+    'X': '1',   # normal step
     'M': '2',   # start hold
-    'H': '0',   # hold
+    'H': '0',   # hold (0 between '2' ... '3' in ssc)
     'W': '3'    # release hold
 }
+
+SSC_OFF_SYMBOL = 0
+SSC_STEP_SYMBOL = 1
+SSC_HOLD_SYMBOL = 2
+SSC_RELEASE_SYMBOL = 3
+SSC_NUM_SYMBOLS = 4
 
 class Chart(object):
     """A chart object, with associated data. Represents a single example"""
     
-    # convert ucs steps to ssc
+    # convert ucs steps to ssc (text)
+    @classmethod
     def ucs_to_ssc(cls, steps):
         ssc_steps = ''
         for note in steps:
@@ -185,10 +191,39 @@ class Chart(object):
         return ssc_steps
 
     # convert a sequence of steps ['00100', '10120', ...] -> input tensor
+    @classmethod
     def sequence_to_tensor(cls, sequence):
-        pass
+        # shape [abs # of frames, 4 x # arrows (20 for single, 40 for double)]
+        #   (for each arrow, mark 1 of 4 possible states - off, step, hold, release)
+        # eg. ['10002', '01003'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
+        #                             -downleft-   -upleft- ....   -downright-
+        #                            [0, 0, 0, 0, 0, 1, 0, 0, ..., 0, 0, 0, 1]]
+        step_tensors = []
+        hold_indices = set()   # track active holds; for ssc, a '0' between '2' ... '3' is a hold
+        for step in sequence:
+            step_list = [int(symbol) for symbol in step]
 
-    def __init__(self, chart_attrs, song, filetype, permuatations):
+            symbol_tensors = []
+            for i, symbol in enumerate(step_list):            
+                # treat hold starts ('2') as steps ('1'),
+                if symbol == SSC_HOLD_SYMBOL:
+                    hold_indices.add(symbol)
+                    step_list[i] = SSC_STEP_SYMBOL
+                elif i in hold_indices:
+                    if symbol == SSC_RELEASE_SYMBOL:
+                        hold_indices.remove(symbol)
+                    # treat hold states ('0' between '2'..'3') as holds ('2')
+                    elif symbol == SSC_OFF_SYMBOL:
+                        step_list[i] = SSC_HOLD_SYMBOL
+
+                symbol_tensors.append(torch.zeros(SSC_NUM_SYMBOLS).scatter_(0, symbol, 1))
+
+            # convert symbols -> concatenated one hot encodings
+            step_tensors.append(torch.cat(symbol_tensors))
+
+        return torch.cat(step_tensors).view(-1, SSC_NUM_SYMBOLS)
+
+    def __init__(self, chart_attrs, song, filetype, permuatation_type=None):
         self.song = song
         self.filetype = filetype
 
@@ -204,45 +239,48 @@ class Chart(object):
         self.chart_feats = torch.cat((chart_type_onehot, level_oneshot), dim=-1)
 
         self.notes = chart_attrs['notes']
-        self.permutations = permutations
+        self.permuatation_type = permutation_type
 
         self.parse_notes()
 
     def parse_notes(self):
+        # [# frames] - numbers of (10ms) frames for each step
         self.step_frames = []
+
+        # [# frames] for each frame in ^, whether or not a step was placed or not
         self.step_placements = []
 
-        # track non-empty steps + relevant features
-        self.step_sequences = [[] for _ in range(len(self.permutations))]
+        # [# frames, # step features] - sequence of non-empty steps with associated frame numbers
+        self.step_sequence = []
         
         for _, _, time, steps in self.notes
             # list containing absolute frame numbers corresponding to each split
-            self.step_frames.append(int(round(time * MS_PER_FRAME)))
+            int(round(time * AUDIO_FRAME_RATE))
+            self.step_frames.append(curr_frame_number)
         
             # for each frame, 0 = no step, 1 = some step
             step_this_frame = STEP_PATTERNS[self.filetype].search(steps)
             self.step_placements.append(step_this_frame)
 
-            for i, permutation_type in enumerate(self.permutations):
-                self.step_sequences[i].append(self.permute_steps(steps, permutation_type))
+            self.step_sequence.append(self.permute_steps(steps))
         
-        self.step_frames = torch.tensor(self.step_frames)
-        self.step_placements = torch.tensor(self.step_placements, dtype=torch.uint8)
-        self.step_sequences = [Chart.sequence_to_tensor(seq) for seq in self.step_sequences]
+        self.step_sequence = Chart.sequence_to_tensor(self.step_sequence)
 
     # return tensor of audio feats for this chart
     def get_audio_feats(self):
         return self.song.audio_feats
 
-    # https://github.com/chrisdonahue/ddc/blob/master/dataset/filter_json.py
     def permute_steps(self, steps, permutation_type):  
-        # permutation numbers signify moved location
+        # permutation numbers signify moved location of original step
         #   ex) steps = '10010'
-        #       perm = '43210' -> (flip horizontally)
-        #       steps_new = '01001'
-        permutation = CHART_PERMUTATIONS[self.chart_type][permutation_type]
-
+        #       permt = '43210' -> (flip horizontally)
+        #    newsteps = '01001'            
         if self.filetype == 'ucs':
             steps = Chart.ucs_to_ssc(steps)
+
+        if not self.permutation_type:
+            return steps
+
+        permutation = CHART_PERMUTATIONS[self.chart_type][self.permutation_type]
 
         return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
