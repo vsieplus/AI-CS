@@ -90,14 +90,14 @@ def main():
         json_fps.extend(sub_fps)
 
     if not args.step_artists:
-        args.step_artists = set()
+        known_step_artists = set()
         for fp in json_fps:
             with open(fp, 'r') as f:
                 chart_data = json.loads(f.read())
             for chart in chart_data['charts']:
                 if 'credit' in chart:
-                    args.step_artists.add(chart['credit'])
-        args.step_artists = list(args.step_artists)
+                    known_step_artists.add(chart['credit'])
+        known_step_artists = list(known_step_artists)
 
     dataset_metadata = {
         'dataset_name': dataset_name,
@@ -119,7 +119,7 @@ def main():
     
     print('Dataset "{}" saved to {}'.format(dataset_name, os.path.relpath(dataset_json)))
     print('Total number of chart files: ', len(json_fps))
-    print('Included known step artists: ', args.step_artists)
+    print('Included known step artists: ', known_step_artists)
 
 if __name__ == '__main__':
     main()
