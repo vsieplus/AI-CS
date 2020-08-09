@@ -83,7 +83,6 @@ First to extract data from the ssc/ucs files and convert to json, you can call
 
 `python processing/generate_json.py`
 
-You can use the `--choose` option to select which packs to convert, or leave out to convert all.
 This will then ask you to choose a set of packs to convert from theose currently under 
 `dataset/raw/`. The resulting json files will be located under `dataset/json/` in
 directories according to their respective packs. These files will contain the data that can

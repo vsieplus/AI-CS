@@ -9,7 +9,5 @@ python3 processing/dataset_json.py \
     --song_types arcade remix fullsong shortcut \
     --min_difficulty=1 \
     --max_difficulty=28 \
-    --min_bpm=0 \
-    --max_bpm=300 \
     --permutations flip mirror flip_mirror \
     ${@:1}

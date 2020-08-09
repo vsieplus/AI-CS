@@ -35,8 +35,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--chart_difficulties', type=str, help='Whitelist of chart difficulties; if empty, no filter')
     parser.add_argument('--min_difficulty', type=int, help='Min chart difficulty')
     parser.add_argument('--max_difficulty', type=int, help='Max chart difficulty')
-    parser.add_argument('--min_bpm', type=int, help='Minimum song bpm')
-    parser.add_argument('--max_bpm', type=int, help='Maximum song bpm')
     parser.add_argument('--permutations', type=str, help='List of permutation types to include in output',
         choices = ['flip', 'mirror', 'flip_mirror'], nargs='+') # for data augmentation
 
@@ -105,8 +103,6 @@ def main():
         'dataset_name': dataset_name,
         'song_types': args.song_types,
         'mixes': pack_names,
-        'min_song_bpm': args.min_bpm,
-        'max_song_bpm': args.max_bpm,
         'chart_type': args.chart_type,
         'step_artists': args.step_artists,
         'chart_difficulties': args.chart_difficulties,

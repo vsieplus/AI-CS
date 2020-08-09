@@ -308,8 +308,6 @@ def parse_ucs_txt(chart_txt):
     # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
     chart_sections = re.findall(UCS_SECTION_PATTERN + UCS_SPLIT_PATTERNS[attrs['chart_type']], chart_txt)
     
-    #print(chart_sections[0][1])
-    
     # represent charts as singleton list
     attrs['charts'] = [{
         'stepstype': 'pump-' + attrs['chart_type'],
