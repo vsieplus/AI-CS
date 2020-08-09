@@ -7,8 +7,10 @@ import re
 from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, random_split
+from torch.nn.utils.rnn import pad_sequence
 
 from extract_audio_feats import extract_audio_feats
+from hyper import PAD_IDX
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
 from pathlib import Path
@@ -33,6 +35,36 @@ def get_splits(dataset):
 			split_sizes.append(int(split * len(dataset)))
 	train, valid, test = random_split(dataset, split_sizes)
 	return train, valid, test
+
+# custom collate function for dataloader
+# input: list of chart objects
+def collate_charts(batch):
+	# [batch, channels, max audio frames, freq]
+	audio_feats = pad_sequence([chart.get_audio_feats().transpose(0, 1) for chart in batch], 
+		batch_first=True, padding_value=PAD_IDX).transpose(1, 2)	# transpose timestep/channel dims back
+	
+	# [batch, chart_feats]
+	chart_feats = torch.LongTensor([chart.chart_feats for chart in batch])
+
+	# [batch, max chart frames]
+	step_placements = pad_sequence([chart.step_placements for chart in batch], 
+		batch_first=True, padding_value=PAD_IDX)
+
+	# [batch, max chart frames]
+	step_frames = pad_sequence([chart.step_frames for chart in batch], 
+		batch_first=True, padding_value=PAD_IDX)
+
+	print(step_placements.size())
+	print(step_placements)
+
+	# [batch, max arrow seq len (<= max_timesteps), arrow features]
+	step_sequence = pad_sequence([chart.step_sequence for chart in batch],
+		batch_first=True, padding_value=PAD_IDX)
+
+	return {'audio_feats': audio_feats,
+			'chart_feats': chart_feats,
+			'placement_targets': step_placements, 
+			'step_sequence': step_sequence}
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
@@ -66,8 +98,8 @@ class StepchartDataset(Dataset):
 	def __getitem__(self, idx):
 		return self.charts[idx]
 
-	def print_summary():
-		print(f'Dataset name: {self.dataset_name}')
+	def print_summary(self):
+		print(f'Dataset name: {self.name}')
 		print(f'Chart Type: {self.chart_type}')
 		print(f'Total # charts: {self.__len__()}')
 		if self.chart_difficulties:
@@ -75,6 +107,7 @@ class StepchartDataset(Dataset):
 		else:
 			print(f'Minimum chart level: {self.min_level}')
 			print(f'Maximum chart level: {self.max_level}')
+		print(f'Chart Permutations: {self.permutations}')
 
 	# filter/load charts
 	def load_charts(self, json_fps):
@@ -125,7 +158,7 @@ class StepchartDataset(Dataset):
 			if not valid_type:
 				continue
 
-			chart_level = chart_attrs['meter']
+			chart_level = int(chart_attrs['meter'])
 			if self.chart_difficulties:
 				valid_level = chart_level in self.chart_difficulties
 			else:
@@ -264,6 +297,7 @@ def permute_steps(steps, chart_type, permutation_type, filetype):
 
 	return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
 
+@memory.cache
 def parse_notes(notes, chart_type, permutation_type, filetype):
 	# [# frames] - numbers of (10ms) frames for each step
 	step_frames = []
@@ -285,7 +319,9 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 		step_this_frame = STEP_PATTERNS[filetype].search(steps)
 		step_placements.append(1 if step_this_frame else 0)
 
-		step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
+		# only store non-empty steps in the sequence
+		if step_this_frame:
+			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
 		
 	#breakpoint()				
 	return torch.tensor(step_frames), torch.tensor(step_placements), sequence_to_tensor(step_sequence)
@@ -298,7 +334,7 @@ class Chart(object):
 		self.filetype = filetype
 
 		self.step_artist = chart_attrs['credit'] if 'credit' in chart_attrs else ''
-		self.level = chart_attrs['meter']
+		self.level = int(chart_attrs['meter'])
 		self.chart_type = chart_attrs['stepstype']
 		assert(self.chart_type in CHART_PERMUTATIONS)
 
