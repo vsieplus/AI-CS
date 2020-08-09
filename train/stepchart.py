@@ -47,15 +47,12 @@ def collate_charts(batch):
 	chart_feats = torch.LongTensor([chart.chart_feats for chart in batch])
 
 	# [batch, max chart frames]
-	step_placements = pad_sequence([chart.step_placements for chart in batch], 
+	step_placements = pad_sequence([chart.step_placements for chart in batch],
 		batch_first=True, padding_value=PAD_IDX)
 
 	# [batch, max chart frames]
-	step_frames = pad_sequence([chart.step_frames for chart in batch], 
+	step_frames = pad_sequence([chart.step_frames for chart in batch],
 		batch_first=True, padding_value=PAD_IDX)
-
-	print(step_placements.size())
-	print(step_placements)
 
 	# [batch, max arrow seq len (<= max_timesteps), arrow features]
 	step_sequence = pad_sequence([chart.step_sequence for chart in batch],
