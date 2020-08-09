@@ -5,12 +5,13 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
 PAD_IDX = -5
 
 BATCH_SIZE = 1
-HIDDEN_SIZE = 256
+HIDDEN_SIZE = 128
 NUM_EPOCHS = 5
 
 PLACEMENT_CRITERION = BCEWithLogitsLoss()
 PLACEMENT_LR = 0.005
 
+PLACEMENT_AUDIO_PAD = 7  # how many frames of audio context to use during placement training
 PLACEMENT_CHANNELS = [3, 10]
 PLACEMENT_FILTERS = [10, 20]
 PLACEMENT_KERNEL_SIZES = [(7, 3), (3, 3)]

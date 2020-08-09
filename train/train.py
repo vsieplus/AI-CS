@@ -41,23 +41,26 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
     rnn.train()
     optimizer.zero_grad()
 
-    # [batch, 3, ?, 80] ; ? = (max batch) timesteps in audio features
+    cnn.to(device)
+    rnn.to(device)
+
+    # [batch, 3, ?, 80] ; ? = (max batch) 10ms timesteps/frames in audio features
     audio_feats = batch['audio_feats'].to(device)
+    num_audio_frames = audio_feats.size(2)
+    batch_size = audio_feats.size(0)
 
     # [batch, # chart features]
     chart_feats = batch['chart_feats'].to(device)
-
-    num_audio_frames = audio_feats.size(2)
     
-    # both are [batch, # of chart frames]
-    chart_placements = batch['placement_targets']
-    chart_frames = batch.step_frames   # which audio frames recorded in chart data
+    # both are [batch, max # of chart frames]
+    chart_placements = batch['placement_targets'].to(device)
+    chart_frames = batch['step_frames'].to(device)   # which audio frames recorded in chart data
     
     first_frame = chart_frames[0]
     last_frame = chart_frames[-1]
 
     total_loss = 0
-    clstm_hiddens = []
+    clstm_hiddens = []  # final_shape -> [batch, # of nonempty chart frames, hidden]
 
     # bptt https://discuss.pytorch.org/t/implementing-truncated-backpropagation-through-time/15500/29
     # unrolling https://machinelearningmastery.com/rnn-unrolling/
@@ -66,17 +69,30 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
         if frame < first_frame or frame > last_frame:
             continue
 
+        start_frame = min(frame - PLACEMENT_AUDIO_PAD, 0)
+        end_frame = max(frame + PLACEMENT_AUDIO_PAD, num_audio_frames - 1)
+
         cnn_in = audio_feats[:, :, ]
 
         cnn_out = cnn(cnn_in)
         logits, clstm_hidden = rnn(cnn_out, chart_feats)
 
-        loss = criterion(logits, batch.chart_placements[frame])
+        # if this audio frame also in the chart, use actual target
+        if frame in chart_frames[:, ]:
+            targets = chart_placements[:, frame]
+
+            # only need to track chart frame hiddens with nonempty steps
+            if     
+                clstm_hiddens.append(clstm_hidden)
+        else:
+            # else there was no step for certain for any
+            targets = torch.zeros(batch_size, device=device)
+
+        loss = criterion(logits, targets)
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
-        clstm_hiddens.append(clstm_hidden)
 
     return total_loss, clstm_hiddens
    
