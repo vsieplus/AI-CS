@@ -2,7 +2,14 @@
 
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
 
+SEED = 1949
+
 PAD_IDX = -5
+
+N_CHART_TYPES = 2
+N_LEVELS = 28
+N_AUDIO_FEATS = 83     # 80 frequency bands + 3 channels
+AUDIO_FRAME_RATE = 100 # 10 ms per (audio) frame
 
 BATCH_SIZE = 1
 HIDDEN_SIZE = 128
@@ -10,14 +17,20 @@ NUM_EPOCHS = 5
 
 PLACEMENT_CRITERION = BCEWithLogitsLoss()
 PLACEMENT_LR = 0.005
+PLACEMENT_MAX_NORM = 5
 
 PLACEMENT_AUDIO_PAD = 7  # how many frames of audio context to use during placement training
-PLACEMENT_CHANNELS = [3, 10]
+PLACEMENT_CHANNELS = 3
 PLACEMENT_FILTERS = [10, 20]
-PLACEMENT_KERNEL_SIZES = [(7, 3), (3, 3)]
+PLACEMENT_KERNEL_SIZES = [(7, 3), (3, 3)]   # (time, frequency) [height, width]
 
+PLACEMENT_POOL_STRIDE = (1, 3)
+PLACEMENT_POOL_WIDTH = (1, 3)
+
+PLACEMENT_UNROLLINGS_LEN = 100       # 100 frames of unrolling for placement model
+
+PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + N_AUDIO_FEATS
 NUM_PLACEMENT_LSTM_LAYERS = 2
-NUM_PLACEMENT_FEATURES = 30 # 2 chart types, 28 difficulty levels
 
 SELECTION_CRITERION = CrossEntropyLoss()
 SELECTION_LR = 0.005

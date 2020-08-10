@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
 
 from extract_audio_feats import extract_audio_feats
-from hyper import PAD_IDX
+from hyper import PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, AUDIO_FRAME_RATE
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
 from pathlib import Path
@@ -33,7 +33,7 @@ def get_splits(dataset):
 			split_sizes.append(len(dataset) - sum(split_sizes))
 		else:
 			split_sizes.append(int(split * len(dataset)))
-	train, valid, test = random_split(dataset, split_sizes)
+	train, valid, test = random_split(dataset, split_sizes, generator=torch.Generator().manual_seed(SEED))
 	return train, valid, test
 
 # custom collate function for dataloader
@@ -221,10 +221,6 @@ SSC_STEP_SYMBOL = 1
 SSC_HOLD_SYMBOL = 2
 SSC_RELEASE_SYMBOL = 3
 SSC_NUM_SYMBOLS = 4
-
-N_CHART_TYPES = 2
-N_LEVELS = 28
-AUDIO_FRAME_RATE = 100 # 10 ms per (audio) frame
 
 # convert ucs steps to ssc (text)
 @memory.cache
