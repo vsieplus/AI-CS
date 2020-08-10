@@ -3,54 +3,70 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 # CNN part of the model takes in raw audio features (first half)
 class PlacementCNN(nn.Module):
     # params define the two convolution layers
-    def __init__(self, in_channels, num_filters, kernel_sizes):
-        
+    def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride):
         super(PlacementCNN, self).__init__()
 
-        # conv. layer filter sizes [7, 3]/[3, 3] ~ [time, frequency] as H/W dims
-        self.convLayer1 = nn.Conv2d(in_channels=in_channels[0],
-            out_channels=num_filters[0], kernel_size=kernel_sizes[0])
-        self.convLayer2 = nn.Conv2d(in_channels=in_channels[1],
-            out_channels=num_filters[1], kernel_size=kernel_sizes[1])
+        # conv layers use [time, frequency] as H/W dims; use same padding to maintain dims
+        self.in_channels = in_channels
+        self.conv_params = zip(num_filters, kernel_sizes)
 
         # after each convLayer; maxPool2d only in frequency dim. -> ~ maxPool1d
         self.relu = nn.ReLU()
-        self.maxPool1d = nn.MaxPool2d(kernel_size=(1, 3), stride=(1, 3))
+        self.pool_kernel = pool_kernel
+        self.pool_stride = pool_stride
 
-    # audio_input: [batch, 3, 15, 80] (batch, channels, timestep, freq.)
+    # audio_input: [batch, 3, ?, 80] (batch, channels, timestep, freq. bands)
     def forward(self, audio_input):
-        # [batch, 10, 9, 78]
-        result = self.relu(self.convLayer1(audio_input))
+        timesteps = audio_input.size(2)     # 'h_in'
+        freq_bands = audio_input.size(3)    # 'w_in'
+        
+        for num_filters, kernel_size in self.conv_params:
+            # maintain H/W dimensions (assume stride = dilation = 1)
+            # ex) h_out = h_in + (2 * h_padding) - (1 * (kernel_size[0] - 1) - 1) + 1
+            # wanted: h_out = h_in, -> h_padding = (-1 + (kernel_size[0] + 2))/2 = (kernel_size[0] + 1)/2  
+            # analgous for w_padding
+            required_conv_padding = ((kernel_size[0] + 1) / 2, (kernel_size[1] + 1) / 2)
+            
+            result = F.conv2d(audio_input, weights=(num_filters, self.in_channels,
+                kernel_size[0], kernel_size[1]), padding=required_conv_padding)
 
-        # [batch, 10, 9, 26]
-        result = self.maxPool1d(result)
+            # [batch, num_filters, ?, 80]
+            result = self.relu(result)
 
-        # [batch, 20, 7, 24]
-        result = self.relu(self.convLayer2(result))
+            # also maintain h/w through max-pooling layer
+            # h_out = ((h_in + (2 * h_padding) - (1 * (kernel_size[0] - 1) - 1)) / stride[0] ) + 1 
+            # -> (h_in + (2 * h_padding) - (kernel_size[0] - 2)) = stride[0] * h_in - stride[0]
+            # -> h_padding = ((stride[0] - 1) * h_in - stride[0] + kernel_size[0] - 2) / 2
+            required_pool_padding = (((stride[0] - 1) * timesteps - stride[0] + kernel_size[0] - 2) / 2,
+                ((stride[1] - 1) * freq_bands - stride[1] + kernel_size[1] - 2) / 2)
 
-        # [batch, 20, 7, 8]; still (batch, channels, timestep, freq)
-        result = self.maxPool1d(result)
+            # [batch, num_filters, ?, 80]
+            result = F.max_pool2d(result, kernel_size=self.pool_kernel, stride=self.pool_stride,
+                padding=required_pool_padding)
 
-        # [batch, 7, 28]; transpose, then flatten channel/freq. dimensions
+        # [batch, num_filters[1], ?, 80]
+        # -> [batch, ?, 83]; transpose, then flatten channel/freq. dimensions
         # shape is now (batch, timestep, features)
-        result = result.transpose(2, 3).flatten(2, 3)
+        result = result.transpose(1, 2).flatten(2, 3)
 
         return result
 
 # RNN + MLP part of the model (2nd half); take in processed audio features + chart type/level
 class PlacementRNN(nn.Module):
-    def __init__(self, num_lstm_layers, num_features, hidden_size, dropout=0.5):
+    def __init__(self, num_lstm_layers, input_size, hidden_size, dropout=0.5):
         super(PlacementRNN, self).__init__()
 
         self.num_lstm_layers = num_lstm_layers
         self.hidden_size = hidden_size
 
         # dropout not applied to output of last lstm layer (need to apply manually)
-        self.lstm = nn.LSTM(input_size=28 + num_features, hidden_size=hidden_size,
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
             num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
         self.linear1 = nn.Linear(in_features=hidden_size, out_features=128)
@@ -58,7 +74,8 @@ class PlacementRNN(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
-    # processed_audio_input: [batch, 7, 28] (output of PlacementCNN.forward())
+    # processed_audio_input: [batch, timestep, input_size] (output of PlacementCNN.forward())
+    #   timestep ~ unrolling length
     # chart_features: [batch, num_features] (concat. of one-hot representations)
     def forward(self, processed_audio_input, chart_features):
         batch_size = processed_audio_input.size(0)
@@ -75,7 +92,7 @@ class PlacementRNN(nn.Module):
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
 
-        # hidden state for current frame (save for later use in selection model)
+        # hidden state for current frame (potentially save for later use in selection model)
         curr_frame_hidden = lstm_out[:, int(lstm_out.size(1)/2)]
 
         # [batch, hidden] (use last hidden states as input to linear layer)
