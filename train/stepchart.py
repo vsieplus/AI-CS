@@ -36,32 +36,52 @@ def get_splits(dataset):
 	train, valid, test = random_split(dataset, split_sizes, generator=torch.Generator().manual_seed(SEED))
 	return train, valid, test
 
+# TODO write custom sampler to batch charts by shared audio file/song length
+
 # custom collate function for dataloader
-# input: list of chart objects
-def collate_charts(batch):
-	# [batch, channels, max audio frames, freq]
-	audio_feats = pad_sequence([chart.get_audio_feats().transpose(0, 1) for chart in batch], 
-		batch_first=True, padding_value=PAD_IDX).transpose(1, 2)	# transpose timestep/channel dims back
-	
-	# [batch, chart_feats]
-	chart_feats = torch.LongTensor([chart.chart_feats for chart in batch])
+# input: dict of chart objects/lengths
+def collate_charts(batch):	
+	audio_feats = []
+	chart_feats = []
+	step_placements = []
+	step_frames = []	# [batch, chart frames (variable)] (just a list, not a tensor)
+	step_sequence = []
+
+	# lenghts of examples, for packing
+	audio_lengths = []
+	sequence_lengths = []
+	placement_lengths = []
+
+	for chart in batch:
+		audio_feats.append(chart.get_audio_feats()).transpose(0, 1))
+		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
+
+		step_placements.append(torch.tensor(chart.step_placements))
+		step_frames.append(chart.step_frames)
+
+		step_sequence.append(chart.step_sequence)
+
+		audio_lengths.append(audio_feats[-1].size(1))
+		sequence_lengths.append(step_sequence[-1].size(0))
+		placement_lengths.append(len(chart.step_placements))
+
+	# transpose timestep/channel dims back => [batch, channels, max audio frames, freq]
+	audio_feats = pad_sequence(audio_feats, batch_first=True, padding_value=PAD_IDX).transpose(1, 2)
+	chart_feats = torch.cat(chart_feats, dim=0) # [batch, chart_feats]
 
 	# [batch, max chart frames]
-	step_placements = pad_sequence([chart.step_placements for chart in batch],
-		batch_first=True, padding_value=PAD_IDX)
-
-	# [batch, max chart frames]
-	step_frames = pad_sequence([chart.step_frames for chart in batch],
-		batch_first=True, padding_value=PAD_IDX)
+	step_placements = pad_sequence(step_placements, batch_first=True, padding_value=PAD_IDX)
 
 	# [batch, max arrow seq len (<= max_timesteps), arrow features]
-	step_sequence = pad_sequence([chart.step_sequence for chart in batch],
-		batch_first=True, padding_value=PAD_IDX)
+	step_sequence = pad_sequence(step_sequence, batch_first=True, padding_value=PAD_IDX)
 
 	return {'audio_feats': audio_feats,
+			'audio_lengths': audio_lengths,
 			'chart_feats': chart_feats,
-			'placement_targets': step_placements, 
-			'step_sequence': step_sequence}
+			'placement_targets': step_placements,
+			'placement_lengths': placement_lengths,
+			'step_sequence': step_sequence,
+			'sequence_lengths': sequence_lengths}
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
@@ -317,7 +337,7 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
 		
 	#breakpoint()				
-	return torch.tensor(step_frames), torch.tensor(step_placements), sequence_to_tensor(step_sequence)
+	return step_frames, step_placements, sequence_to_tensor(step_sequence)
 
 class Chart(object):
 	"""A chart object, with associated data. Represents a single example"""
