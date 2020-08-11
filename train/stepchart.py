@@ -9,13 +9,13 @@ import torch
 from torch.utils.data import Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
 
+from pathlib import Path
+from joblib import Memory
+
 from extract_audio_feats import extract_audio_feats
 from hyper import PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, AUDIO_FRAME_RATE
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
-from pathlib import Path
-from joblib import Memory
-
 ABS_PATH = str(Path(__file__).parent.absolute())
 CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
 
@@ -36,8 +36,6 @@ def get_splits(dataset):
 	train, valid, test = random_split(dataset, split_sizes, generator=torch.Generator().manual_seed(SEED))
 	return train, valid, test
 
-# TODO write custom sampler to batch charts by shared audio file/song length
-
 # custom collate function for dataloader
 # input: dict of chart objects/lengths
 def collate_charts(batch):	
@@ -47,23 +45,23 @@ def collate_charts(batch):
 	step_frames = []	# [batch, chart frames (variable)] (just a list, not a tensor)
 	step_sequence = []
 
-	# lenghts of examples, for packing
+	# list of lengths of examples, for packing
 	audio_lengths = []
 	sequence_lengths = []
-	placement_lengths = []
 
 	for chart in batch:
-		audio_feats.append(chart.get_audio_feats()).transpose(0, 1))
+		# transpose channels/timestep so timestep comes first
+		audio_feats.append(chart.get_audio_feats().transpose(0, 1))
 		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
 
 		step_placements.append(torch.tensor(chart.step_placements))
 		step_frames.append(chart.step_frames)
 
+		# already a tensor
 		step_sequence.append(chart.step_sequence)
 
-		audio_lengths.append(audio_feats[-1].size(1))
+		audio_lengths.append(audio_feats[-1].size(0))
 		sequence_lengths.append(step_sequence[-1].size(0))
-		placement_lengths.append(len(chart.step_placements))
 
 	# transpose timestep/channel dims back => [batch, channels, max audio frames, freq]
 	audio_feats = pad_sequence(audio_feats, batch_first=True, padding_value=PAD_IDX).transpose(1, 2)
@@ -79,7 +77,6 @@ def collate_charts(batch):
 			'audio_lengths': audio_lengths,
 			'chart_feats': chart_feats,
 			'placement_targets': step_placements,
-			'placement_lengths': placement_lengths,
 			'step_sequence': step_sequence,
 			'sequence_lengths': sequence_lengths}
 
@@ -162,8 +159,6 @@ class StepchartDataset(Dataset):
 	def charts_to_include(self, attrs):
 		chart_indices = []
 
-		#breakpoint()
-
 		valid_songtype = self.songtypes and attrs['songtype'] in self.songtypes
 
 		if not valid_songtype:
@@ -192,7 +187,7 @@ class StepchartDataset(Dataset):
 
 		return chart_indices
 
-class Song(object):
+class Song:
 	"""A song object, corresponding to some audio file. May be relied on by
 	multiple charts."""
 
@@ -208,7 +203,7 @@ class Song(object):
 
 CHART_PERMUTATIONS = {
 	'pump-single': {
-	#normal:         '01234'
+	    #normal:        '01234'
 		'flip':         '43210',
 		'mirror':       '34201',
 		'flip_mirror':  '10243'
@@ -227,7 +222,6 @@ STEP_PATTERNS = {
 	'ssc': re.compile('[1-3]')
 }
 
-
 UCS_SSC_DICT = {
 	'.': '0',   # no step
 	'X': '1',   # normal step
@@ -236,10 +230,11 @@ UCS_SSC_DICT = {
 	'W': '3',   # release hold
 }
 
-SSC_OFF_SYMBOL = 0
-SSC_STEP_SYMBOL = 1
-SSC_HOLD_SYMBOL = 2
-SSC_RELEASE_SYMBOL = 3
+# symbols used in our representation
+SSC_OFF_SYMBOL = 0		# step is not activated
+SSC_STEP_SYMBOL = 1		# there is a lone step, or a start of a hold
+SSC_HOLD_SYMBOL = 2		# the step is currently being held down
+SSC_RELEASE_SYMBOL = 3	# the step is released (end of a hold)
 SSC_NUM_SYMBOLS = 4
 
 # convert ucs steps to ssc (text)
@@ -339,7 +334,7 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	#breakpoint()				
 	return step_frames, step_placements, sequence_to_tensor(step_sequence)
 
-class Chart(object):
+class Chart:
 	"""A chart object, with associated data. Represents a single example"""
 
 	def __init__(self, chart_attrs, song, filetype, permutation_type=None):
@@ -352,11 +347,10 @@ class Chart(object):
 		assert(self.chart_type in CHART_PERMUTATIONS)
 
 		# concat one-hot encodings of chart_type/level
-		chart_type_onehot = torch.zeros(N_CHART_TYPES).scatter_(0,
-			torch.tensor(1) if self.chart_type == "pump-double" else torch.tensor(0), 1)
-		level_oneshot = torch.zeros(N_LEVELS).scatter_(0, torch.tensor(self.level) - 1, 1)
-
-		self.chart_feats = torch.cat((chart_type_onehot, level_oneshot), dim=-1)
+		chart_type_one_hot = [0 for _ in range(N_CHART_TYPES) if self.chart_type == 'pump-single' else 1]
+		level_one_hot = [0] * N_LEVELS
+		level_one_hot[self.level - 1] = 1
+		self.chart_feats = chart_type_one_hot + level_one_hot
 
 		self.permutation_type = permutation_type
 
