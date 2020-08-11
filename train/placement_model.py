@@ -70,31 +70,36 @@ class PlacementRNN(nn.Module):
             num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
         self.linear1 = nn.Linear(in_features=hidden_size, out_features=128)
-        self.linear2 = nn.Linear(in_features=128, out_features=1)
+        self.linear2 = nn.Linear(in_features=128, out_features=2)   # 0 or 1 for step/no step
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
     # processed_audio_input: [batch, timestep, input_size] (output of PlacementCNN.forward())
     #   timestep ~ unrolling length
     # chart_features: [batch, num_features] (concat. of one-hot representations)
-    def forward(self, processed_audio_input, chart_features, states):
+    def forward(self, processed_audio_input, chart_features, states, input_lengths):
         batch_size = processed_audio_input.size(0)
         unroll_length = processed_audio_input.size(1)
         device = processed_audio_input.device
 
         # [batch, unroll_length, input_size] concat audio input with chart features
-        chart_features = chart_features.repeat(1, unroll_length).view(batch_size, seq_len, -1)
-        lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
+        # only concatenate the features when no sequence is padded (leave out towards the end)
+        if all(input_lengths[0] == length for length in input_lengths):
+            chart_features = chart_features.repeat(1, unroll_length).view(batch_size, seq_len, -1)
+            lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
+        else:
+            lstm_input = processed_audio_input
 
         # pack the sequence
-        lstm_input = pack_padded_sequence(lstm_input)
+        lstm_input = pack_padded_sequence(lstm_input, input_lengths, batch_first=True,
+            enforce_sorted=False)
 
         # [batch, unroll_length, hidden_size] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
         lstm_out, (hn, cn) = self.lstm(lstm_input, states)
 
         # unpack output
-        lstm_out, _ = pad_packed_sequence(lstm_out)
+        lstm_out, _ = pad_packed_sequence(lstm_out, batch_first=True)
         
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
@@ -105,7 +110,7 @@ class PlacementRNN(nn.Module):
             # [batch, hidden] -> [batch, 128] -> [batch, 1] (2 fully-connected relu layers w/dropout)
             linear_input = lstm_out[:, i]
             linear_input = self.dropout(self.relu(self.linear1(linear_input)))
-            logits = self.dropout(self.relu(self.linear1(linear_input)))
+            logits = self.dropout(self.relu(self.linear2(linear_input)))
 
             all_logits.append(logits.unsqueeze(0))
 
@@ -113,8 +118,8 @@ class PlacementRNN(nn.Module):
         all_logits.clear()
 
         # return logits directly, along hidden state for each frame
-        # [batch, unroll_length] / [batch, unroll, hidden] 
-        return logits, lstm_out.detach()
+        # [batch, unroll_length, 2] / [batch, unroll, hidden] / ([batch, hidden] x 2)
+        return logits, lstm_out.detach(), (hn, cn)
 
     # initial celll/hidden state for lstm
     def initStates(self, batch_size, device):
