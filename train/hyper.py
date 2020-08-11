@@ -1,10 +1,10 @@
 # various constants/hyperparameters
 
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss
+from torch.nn import CrossEntropyLoss
 
 SEED = 1949
 
-PAD_IDX = -5
+PAD_IDX = -50
 
 N_CHART_TYPES = 2
 N_LEVELS = 28
@@ -15,7 +15,7 @@ BATCH_SIZE = 1
 HIDDEN_SIZE = 128
 NUM_EPOCHS = 5
 
-PLACEMENT_CRITERION = BCEWithLogitsLoss()
+PLACEMENT_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
 PLACEMENT_LR = 0.005
 PLACEMENT_MAX_NORM = 5
 
@@ -32,7 +32,7 @@ PLACEMENT_UNROLLINGS_LEN = 100       # 100 frames of unrolling for placement mod
 PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + N_AUDIO_FEATS
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
-SELECTION_CRITERION = CrossEntropyLoss()
+SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
 SELECTION_LR = 0.005
 
 # arrow states: 
