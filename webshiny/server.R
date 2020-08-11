@@ -5,15 +5,14 @@ library(shiny)
 library(ggplot2)
 library(reticulate) # https://rstudio.github.io/reticulate/
 
-CHART_LEVELS = list(pump_single = 26, pump_double = 28)
+CHART_LEVELS = list('pump-single' = 26, 'pump-double' = 28)
 
 server <- function(input, output, session) {
   
   # update level slider
   observeEvent(input$chart_type, {
     n_levels = CHART_LEVELS[[input$chart_type]]
-    updateSliderInput(session, 'chart_level', max = n_levels,
-                      value = min(n_levels, input$chart_level))
+    updateSliderInput(session, 'chart_level', max = n_levels)
   })
 }
 

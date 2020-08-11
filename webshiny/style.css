@@ -13,12 +13,11 @@ body {
 footer {
   font-family: Calibri;
   font-size: 10pt;
-  position: absolute;
+  position: fixed;
   bottom: 0;
   width: 100%;
   color: azure;
   background-color: slategrey;
   text-align: center;
   padding-top: 2px;
-  padding-bottom: 2px;
 }
