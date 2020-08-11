@@ -66,36 +66,41 @@ def save_checkpoint(p_cnn, p_rnn, s_rnn, p_optim, s_optim, epoch, curr_batch,
 # train the placement models with the specified parameters on the given batch
 def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
     cnn.train()
-    rnn.train()
+    rnn.train() 
 
     # [batch, 3, ?, 80] ; ? = (batch maximum) # of 10ms timesteps/frames in audio features
     audio_feats = batch['audio_feats'].to(device)
     num_audio_frames = audio_feats.size(2)
     batch_size = audio_feats.size(0)
 
-    num_unrollings = PLACEMENT_UNROLLING_LEN // num_audio_frames + 1
-    last_unroll_len = PLACEMENT_UNROLLING_LEN % num_audio_frames
-
     # [batch, # chart features]
     chart_feats = batch['chart_feats'].to(device)
 
     # both are [batch, max # of chart frames] (padded/not padded)
-    chart_placements = batch['placement_targets'].to(device)    # if chart frame had hit or not
-    step_frames = batch['step_frames']  # which audio frames recorded in chart data
+    chart_placements = batch['placement_targets']   # if chart frame had a hit or not
+    step_frames = batch['step_frames']              # which audio frames recorded in chart data
 
-    # the first and last audio frames coinciding with chart step placements
-    # store the actual indices of step frames where
-    chart_placement_indices = [(chart_placements[b] == 1).nonzero() for b in chart_placements.size(0)]
+    # compute the first and last audio frames coinciding with chart non-emtpy step placements
+    chart_placement_indices = [(chart_placements[b] == 1).nonzero() for b in range(batch_size)]
     first_frame = min(step_frames[b][indices[0]] for b, indices in enumrate(chart_placement_indices))
     last_frame = max(step_frames[b][indices[-1]] for b, indices in enumrate(chart_placement_indices))
-    
+
     total_loss = 0
 
     # final_shape -> [batch, # of nonempty chart frames, hidden]
     clstm_hiddens = [[] for _ in batch_size]
 
-    # 100 steps of unrolling
+    # unrolling/bptt
+    num_unrollings = PLACEMENT_UNROLLING_LEN // num_audio_frames + 1
+    last_unroll_len = PLACEMENT_UNROLLING_LEN % num_audio_frames
     states = rnn.initStates(batch_size, device)
+    
+    # get audio lengths for each unrolling (# full frames, last frame length)
+    # (e.g. [100, 100, 100, 64] -> store (3,64))
+    audio_unroll_lengths = [(batch['audio_lengths'][b], 
+                             batch['audio_lengths'][b] % PLACEMENT_UNROLLING_LEN) 
+                            for b in range(batch_size)]
+
     for unrolling in range(num_unrollings):
         optimizer.zero_grad()
 
@@ -111,28 +116,35 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
         if unroll_length == 0:
             continue
 
-        # [batch, <=100, 83] (batch, unroll length, audio features)
+        # [batch, unroll_len, 83] (batch, unroll length, audio features)
         cnn_output = cnn(audio_feats[:, :, audio_start_frame:audio_end_frame])
 
-        # [batch, unroll_len] / [batch, unroll_len, hidden] / (*...hidden, *...hidden)
-        logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states)
+        # [batch, unroll_len, 2] / [batch, unroll_len, hidden] / (*...hidden x 2)
+        logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states,
+                                           [unroll_length for b in range(batch_size)
+                                            if audio_unroll_lengths[b][0] - 1 <= unrolling
+                                            else audio_unroll_lengths[b][1]])
 
         # for each batch example, if this audio frame also in the chart, use actual target at that frame
-        targets = torch.zeros_like(logits.size, device=device)
+        targets = torch.zeros_like(batch_size, unroll_length, device=device)
         for b in range(batch_size):
             targets[b, chart_placement_indices[b]] = 1
 
-            # targets[b, placement_lengths[b]:] = PAD...
+            # if a sequence is padded during this unrolling, set targets to the ignore_index val.
+            audio_length = batch['audio_lengths'][b]
+            if audio_start_frame <= audio_length and audio_length <= audio_end_frame: 
+                targets[b, audio_length - audio_start_frame:] = PAD_IDX
 
-            # only need to track chart frame hiddens with non-empty step placements
+            # only clstm hiddens for chart frames with non-empty step placements
             clstm_hiddens[b].append(clstm_hidden[b, chart_placement_indices])
 
         # compute total loss for this unrolling
-        # TODO figure out proper masking for batch
-        loss = criterion(logits, targets)
+        loss = 0
+        for step in range(unroll_length):
+            loss += criterion(logits[:, step, :], targets[:, step])
         loss.backward()
 
-        # clip grads before step if l2 norm > 5
+        # clip grads before step if L2 norm > 5
         nn.utils.clip_grad_norm_(optimizer.params, max_norm=PLACEMENT_MAX_NORM, type=2)
         optimizer.step()
 
@@ -170,9 +182,9 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
 
     # setup  or load models, optimizers
     placement_cnn = PlacementCNN(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
-                                PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE).to(device)
+                                 PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE).to(device)
     placement_rnn = PlacementRNN(NUM_PLACEMENT_LSTM_LAYERS, PLACEMENT_INPUT_SIZE,
-                                PLACEMENT_HIDDEN_SIZE).to(device)
+                                 PLACEMENT_HIDDEN_SIZE).to(device)
     placement_optim = optim.SGD(list(placement_cnn.parameters()) + list(placement_rnn.parameters()), 
         lr=PLACEMENT_LR, momentum=0.9)
 
