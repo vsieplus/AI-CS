@@ -2,3 +2,6 @@ data/dataset/*
 *.zip
 *__pycache__*
 *.dataset_cache*
+*.Rhistory
+*.RData
+*.log
