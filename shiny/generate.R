@@ -1,6 +1,10 @@
 # use a model to generate a chart with the specified settings
 
-library(reticulate) # https://rstudio.github.io/reticulate/
+library(reticulate) # change to your python path
+reticulate::use_python('/home/vsie/anaconda3/bin/python3.8')
+reticulate::use_condaenv('aics')
+#generate <- reticulate::import_from_path('generate', path = file.path('..', 'generate'))
+
 library(rjson)
 
 CHART_LEVELS <- list('single' = 26, 'double' = 28)
@@ -51,7 +55,20 @@ getModelSummary <- function(modelPath) {
   }
 }
 
-# generate a chart
-generate_chart <- function(modelPath, chart_type, level) {
+# generate a chart; return a list with the relevant args.
+generateChart <- function(audioPath, modelPath, level, chartType,
+                          title, artist, bpm, saveFormats) {
+  chartData <-  list('title' = title, 'artist' = artist, 'bpm' = bpm,
+                    'saveFormats' = saveFormats, 'chartType' = chartType,
+                    'level' = level, 'name' = basename(audioPath))
   
+  # generation strategies: greedy, top-k, top-p
+  # chartData[['notes']] <- generate$generate()
+
+  chartData
+}
+
+# save charts to 'file'
+saveCharts <- function(file) {
+  # can access reactive 'chartData' in here
 }
