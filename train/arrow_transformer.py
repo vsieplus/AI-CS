@@ -3,7 +3,7 @@
 #   transformers/other attention based mechanisms in nlp: arxiv.org/abs/1706.03762
 #   music transformer: arxiv.org/abs/1809.04281
 
-# Model Description (see writeup for more detailed/formal definition)
+# Model Description (see paper for more detailed/formal definition)
 
 import torch
 import torch.nn as nn
