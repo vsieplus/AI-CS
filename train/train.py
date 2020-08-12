@@ -12,8 +12,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from hyper import *
-from placement_model import PlacementCNN, PlacementRNN
-from selection_model import SelectionRNN
+from arrow_rnn_models import PlacementCNN, PlacementRNN, SelectionRNN
+from arrow_transformer import ArrowTransformer
 from stepchart import StepchartDataset, get_splits, collate_charts
 
 ABS_PATH = str(pathlib.Path(__file__).parent.absolute())
@@ -95,7 +95,8 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
     last_unroll_len = PLACEMENT_UNROLLING_LEN % num_audio_frames
     states = rnn.initStates(batch_size, device)
     
-    # get audio lengths for each unrolling (# full frames, last frame length)
+    # get representation of audio lengths for each unrolling
+    # [full frames, last frame length]
     # (e.g. [100, 100, 100, 64] -> store (3,64))
     audio_unroll_lengths = [(batch['audio_lengths'][b], 
                              batch['audio_lengths'][b] % PLACEMENT_UNROLLING_LEN) 
@@ -131,8 +132,7 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
             targets[b, chart_placement_indices[b]] = 1
 
             # if a sequence is padded during this unrolling, set targets to the ignore_index val.
-            audio_length = batch['audio_lengths'][b]
-            if audio_start_frame <= audio_length and audio_length <= audio_end_frame: 
+            if audio_unroll_lengths[b][0] - 1 > unrolling:
                 targets[b, audio_length - audio_start_frame:] = PAD_IDX
 
             # only clstm hiddens for chart frames with non-empty step placements

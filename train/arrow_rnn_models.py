@@ -1,16 +1,18 @@
+# CLSTM + LSTM RNN placement model and LSTM RNN selection model
+
 # model performing step placement; C-LSTM architecture as presented in
-# https://arxiv.org/abs/1703.06891 (section 4.2)
+# dance dance convolution:  https://arxiv.org/abs/1703.06891 (section 4.2)
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-# CNN part of the model takes in raw audio features (first half)
+# CNN part of the model takes in raw audio features and outputs processed features
 class PlacementCNN(nn.Module):
     # params define the two convolution layers
     def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride):
-        super(PlacementCNN, self).__init__()
+        super().__init__()
 
         # conv layers use [time, frequency] as H/W dims; use same padding to maintain dims
         self.in_channels = in_channels
@@ -60,7 +62,7 @@ class PlacementCNN(nn.Module):
 # RNN + MLP part of the model (2nd half); take in processed audio features + chart type/level
 class PlacementRNN(nn.Module):
     def __init__(self, num_lstm_layers, input_size, hidden_size, dropout=0.5):
-        super(PlacementRNN, self).__init__()
+        super().__init__()
 
         self.num_lstm_layers = num_lstm_layers
         self.hidden_size = hidden_size
@@ -125,3 +127,62 @@ class PlacementRNN(nn.Module):
     def initStates(self, batch_size, device):
         return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
                 torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device))
+
+# model responsible for step selection
+# LSTM RNN architecture based off https://arxiv.org/abs/1703.06891 (section 4.4)
+# with addition of an attention-inspired mechanism - utilize hidden states from
+# placement model from the frame at which a particular step occurred
+
+# In particular, at timestep t, construct a weighted sum of the resulting hidden state from
+# the previous timestep, h_{t-1}, and the corresponding output from the clstm h_t':
+# Note that not all hidden states from the placement model will be used.
+
+# intuitively, stepcharters / players learn that certain step patterns tend to
+# coincide with particular audio segments (i.e. jumps/brackets ~ accents, 
+# drills ~ alternating notes, jacks ~ repeated notes, etc...) The above addition
+# provides a way for the step selection algorithm to 'pay some attention' to the
+# audio features at that particular frame via the appropriate clstm hidden state,
+# *in addition* to the previous steps in the chart it has seen via the rnn hidden state
+
+class SelectionRNN(nn.Module):
+    def __init__(self, num_lstm_layers, input_size, hidden_size, hidden_weight, dropout):
+        super().__init__()
+        
+        self.num_lstm_layers = num_lstm_layers
+        self.hidden_size = hidden_size
+
+        # how much to pay attention to hidden state from this rnn/the placement model
+        self.hidden_weight = hidden_weight
+        self.placement_weight = 1 - hidden_weight
+
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
+            num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
+
+        self.linear = nn.Linear(in_features=hidden_size, out_features=input_size)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+
+    # step_input: [batch, unfoldings, input_size]
+    # clstm_hidden, hidden, cell: [num_lstm_layers, batch, hidden_size]
+    def forward(self, step_input, clstm_hidden, hidden, cell):
+        # [batch, hidden] hidden_input at time t = a * h_{t-1} + b * h_t', a is hidden_weight
+        weighted_hidden = self.hidden_weight * hidden + self.placement_weight * clstm_hidden
+
+        # [batch, unfoldings, hidden] (lstm_out: hidden states from last layer)
+        # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
+        lstm_out, (hn, cn) = self.lstm(step_input, (weighted_hidden, cell))
+
+        # manual dropout to last lstm layer output
+        lstm_out = self.dropout(lstm_out)
+
+        # [batch, hidden] (use hidden states from last timestep as input to linear layer)
+        linear_input = lstm_out[:, -1]
+
+        # [batch, input_size] - return logits directly
+        linear_out = self.dropout(self.relu(self.linear(linear_input)))
+
+        return linear_out
+
+    def initStates(self, batch_size, device):
+        return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
+                torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device))    
