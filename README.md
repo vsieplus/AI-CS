@@ -8,14 +8,17 @@ custom step charts from audio. This project was inspired by [Dance Dance Convolu
 |------------|-------------------------------------------------------|
 | `data`     | Chart and song data retrieval + processing |
 | `generate` | Chart generation process using a trained model |
+| `shiny`    | Shiny app providing model and data interactivity + visualization |
 | `train`    | Models and training scripts |
-| `webshiny` | Shiny web app deploying sample models online for others to use |
 
 ## Getting started
 
-If you are mainly interested in generating a stepchart, you can try out one of our pretrained models directly [here](https://vsie.shinyapps.io/ai_custom_step). Simply upload audio and select the type
-of chart you'd like, and it will generate a chart for you! Also be sure to check out our
-[twitter page](https://twitter.com/piu_aics), where we'll share some generated charts of especially high quality. 
+If you are mainly interested in generating a stepchart, you can try out some  of the pretrained models at the shiny web 
+app  [here](https://vsie.shinyapps.io/ai_custom_step). Simply upload audio and select the type
+of chart you'd like, and it will generate a chart for you! There are also some useful
+visualization tools to try to help you see what's going on under the hood. Also be sure 
+to check out our [twitter page](https://twitter.com/piu_aics), where we'll share some 
+generated charts periodically.
 
 If you are interested in trying to train your own models, or learning how the project works you can
 continue reading below. A quick way to get started is to setup a [conda](https://docs.conda.io/en/latest/) environment and install the project dependencies as below. The project will likely work best in a *nix environment. 
@@ -36,4 +39,7 @@ The pipeline for training a model and then using it to generate charts can be su
 
 Each step in turn consists of various sub-processes, so each directory itself has a README with further details.
 
-Feel free to raise any issues or bugs you may encounter, and ask any questions you might have. Thanks for reading!
+### Issues/bugs
+
+Feel free to raise any issues or bugs you may encounter, and ask any questions you might have. 
+Thanks for reading!
