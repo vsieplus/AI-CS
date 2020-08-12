@@ -3,18 +3,55 @@
 library(reticulate) # https://rstudio.github.io/reticulate/
 library(rjson)
 
-# you can change this (relative path) to whatever folder you have your models in
-# if running locally
-MODELS_DIR <- 'models'
+CHART_LEVELS <- list('single' = 26, 'double' = 28)
 
-get_model_summary <- function(model_name) {
-  model_path <- file.path(MODELS_DIR, model_name)
-  model_json_path <- file.path(model_path, 'summary.json')
+# get a list of directories in root/, and their respective paths
+getModelDirs <- function(root) {
+  dirnames <- list.dirs(root, full.names  =  FALSE)
+  dirpaths <- list.dirs(root, full.names  =  TRUE)
+  names(dirpaths) = dirnames
   
-  if(dir.exists(model_path) && file.exists(model_json_path)) {
-    model_summary <- fromJSON(file=model_json_path)
-    sprintf('Model Name: %s', model_name)
+  # exclude the root
+  dirpaths[2:length(dirnames)]
+}
+
+# you can change modelsDir (relative path) to another folder containing
+# your models when running locally; should have structure
+# models/
+#   single/
+#     ...
+#   double/
+#     model1/
+#       model1.tar (the model itself saved from pytorch)
+#       summary.json (produced at end of training)
+#     ...
+modelsDir <- 'models'
+modelTypes <- c('single', 'double')
+modelsList <- lapply(sapply(modelTypes, 
+                            function(x) file.path(modelsDir, x)), 
+                     getModelDirs)
+
+# retrieve text output containing a summary of the given model
+getModelSummary <- function(modelPath) {
+  model_json_path <- file.path(modelPath, 'summary.json')
+  
+  if(dir.exists(modelPath)) {
+    if(file.exists(model_json_path)) {
+      # TODO implement model summary.json format from training
+      #model_summary <- rjson::fromJSON(file = model_json_path)
+      modelName <- 'hi'
+      sprintf('Model Name: %s', modelName)
+      
+      # summaryString
+    } else {
+      sprintf('summar.json not found in %s', modelPath)
+    }
   } else {
-    sprintf('Model directory %s not found or missing summary.json', model_path)
+    sprintf('Model directory %s not found', modelPath)
   }
+}
+
+# generate a chart
+generate_chart <- function(modelPath, chart_type, level) {
+  
 }
