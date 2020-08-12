@@ -13,7 +13,7 @@ server <- function(input, output, session) {
   output$spectrogram_plot <- renderPlot({
     req(input$audio_file)
     plotSpectrogram(input$audio_file$datapath)
-  }, height = 400, width = 600)
+  }, height = 360, width = 600)
   
   # play audio if an audio file has been uploaded + user clicked play
   observeEvent(input$play_audio, {

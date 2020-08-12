@@ -1,12 +1,12 @@
 h3 {
 	font-family: Calibri;
 	text-decoration: underline;
-	font-size: 20pt;
-	display: inline;
+	font-size: 18pt;
+	display: inline-block;
 }
 
 button {
-  float:right;
+  display: inline-block;
 }
 
 img {

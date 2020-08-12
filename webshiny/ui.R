@@ -4,67 +4,78 @@
 library(shiny)
 library(shinythemes)
 
-CHART_TYPES <- list(Single='pump-single', Double='pump-double')
-CHART_FORMATS <- c('ssc', 'u <- cs')
+CHART_TYPES <- list(Single = 'single', Double = 'double')
+CHART_FORMATS <- c('ssc', 'ucs')
 
-# you can change this (relative path) to another folder containing
-# your models when running locally
-MODELS_DIR = 'models/'
-MODELS_LIST = list.dirs(MODELS_DIR, full.names=FALSE)
-
-side_by_side <- function(x, second=FALSE) {
+side_by_side <- function(x, second = FALSE, padding = '20px') {
   if(second) {
-    div(style='vertical-align:top; padding-left: 20px; display: inline-block', x)
+    div(style = paste0('vertical-align: top; display: 
+                        inline-block; padding-left:', padding), x)
   } else {
-    div(style='vertical-align:center; display: inline-block', x)
+    div(style = 'display: inline-block', x)
   }
 }
 
 ui <- navbarPage(
-  windowTitle='Pump it Up - AI Custom Step',
-  title=div(img(src='down_arrow.png', style='height: 27px; padding-right: 7px'), 
-            'Pump it Up - AI Custom Step'), 
-  position='static-top',
-  theme=shinytheme('slate'),
-  header=tags$head(includeCSS('www/style.css')),
-  footer=tags$footer(includeHTML('html/footer.html')),
+  windowTitle = 'Pump it Up - AI Custom Step',
+  title = div(img(src = 'down_arrow.png', style = 'height: 27px; padding-right: 7px'), 
+              'Pump it Up - AI Custom Step'), 
+  position = 'static-top',
+  theme = shinytheme('slate'),
+  header = tags$head(includeCSS('www/style.css')),
+  footer = tags$footer(includeHTML('html/footer.html')),
   
   # main tab
   tabPanel('Generate Steps',
     sidebarLayout(
-      
+     
       # Generation settings
-      sidebarPanel(width=3, position='left',
-        selectInput('model', 'Select model', choices=MODELS_LIST),
-        
-        radioButtons('chart_type', 'Chart type:', choices=CHART_TYPES, inline=TRUE),
-        sliderInput('chart_level', 'Chart level:', value=1, min=1, max=26),
-        
+      sidebarPanel(width = 3, position = 'left',
+        radioButtons('chart_type', 'Chart/Model type:', 
+                     choices = CHART_TYPES, inline = TRUE),
+        selectInput('model', 'Select model', choices = NULL),
+      
+        sliderInput('chart_level', 'Chart level:', value = 1, min = 1, max = 26),
+      
         fileInput('audio_file', 'Upload audio'),
         textInput('song_title', 'Song Title: '),
         textInput('artist', 'Artist: '),
-        
-        side_by_side(numericInput('bpm', 'BPM (optional):', min=0, value=120, width='120px')),
-        side_by_side(checkboxGroupInput('save_formats', 'Output formats:',
-                                        choices=CHART_FORMATS, inline=TRUE), second=TRUE),
-        
-        actionButton('generate', 'Generate!', icon=icon('angle-up'))
-      ),
       
+        side_by_side(numericInput('bpm', 'BPM (optional):', min = 0, value = 120, width = '120px')),
+        side_by_side(checkboxGroupInput('save_formats', 'Output formats:',
+                                        choices = CHART_FORMATS, inline = TRUE), second = TRUE),
+      
+        side_by_side(actionButton('generate', 'Generate!', icon = icon('angle-right'))),
+        side_by_side(downloadButton('download', 'Download', icon = icon('arrow-down')),
+                     second = TRUE, padding = '30px')
+      ),
+     
       # Display model info and visualizations
-      mainPanel(width=9,
+      mainPanel(width = 9,
         includeHTML('html/generate_header.html'),
-        textOutput('model_summary'),
+        fluidRow(
+          # column for model information
+          column(4, h3('Current model'), textOutput('model_summary')),
+          
+          # column for audio visualization
+          column(5, 
+           h3('Audio sample spectrogram'), h3(),
+           actionButton('play_audio', 'Play audio clip', icon = icon('play')),
+           plotOutput('spectrogram_plot'),
+           # sliderInput (clip location) ?
+           uiOutput('audio'))
+        ),
         
+        # model output visualizations
         
-        plotOutput('spectrogram_visual'),
-        plotOutput('chart_visual')
+        # step chart visualization
+        imageOutput('chart_plot')
       )
-    ),
+    )
   ),
   
   
   tabPanel('About',
-    includeHTML('html/about.html')
+           includeHTML('html/about.html')
   )
 )
