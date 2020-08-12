@@ -1,6 +1,0 @@
-*.Rhistory
-*.RData
-*.log
-notes.txt
-models/*
-test/*
