@@ -1,7 +1,9 @@
-# CLSTM + LSTM RNN placement model and LSTM RNN selection model
+# CLSTM placement model and LSTM RNN selection model
 
 # model performing step placement; C-LSTM architecture as presented in
 # dance dance convolution:  https://arxiv.org/abs/1703.06891 (section 4.2)
+
+from math import sqrt
 
 import torch
 import torch.nn as nn
@@ -14,9 +16,19 @@ class PlacementCNN(nn.Module):
     def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride):
         super().__init__()
 
-        # conv layers use [time, frequency] as H/W dims; use same padding to maintain dims
-        self.in_channels = in_channels
-        self.conv_params = zip(num_filters, kernel_sizes)
+        # conv layers use [time, frequency] as H/W dims; use same padding to maintain dims        
+        k = 1
+        conv_weights = [torch.randn(n_filters, in_channel, kernel_size[0], kernel_size[1]) *
+                        (-sqrt(k) - sqrt(k)) + sqrt(k) # uniform dist on [-1, 1]  
+                        for n_filters, kernel_size, in_channel in zip(num_filters, kernel_sizes, in_channels)]
+
+        # maintain H/W dimensions (assume stride = dilation = 1)
+        # ex) h_out = h_in + (2 * h_padding) - (1 * (kernel_size[0] - 1) - 1) + 1
+        # wanted: h_out = h_in, -> h_padding = (-1 + (kernel_size[0] + 2))/2 = (kernel_size[0] + 1)/2  
+        conv_padding = [((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)
+                        for kernel_size in kernel_sizes]
+                    
+        self.conv_params = zip(conv_weights, conv_padding)
 
         # after each convLayer; maxPool2d only in frequency dim. -> ~ maxPool1d
         self.relu = nn.ReLU()
@@ -28,32 +40,20 @@ class PlacementCNN(nn.Module):
         timesteps = audio_input.size(2)     # 'h_in'
         freq_bands = audio_input.size(3)    # 'w_in'
         
-        for num_filters, kernel_size in self.conv_params:
-            # maintain H/W dimensions (assume stride = dilation = 1)
-            # ex) h_out = h_in + (2 * h_padding) - (1 * (kernel_size[0] - 1) - 1) + 1
-            # wanted: h_out = h_in, -> h_padding = (-1 + (kernel_size[0] + 2))/2 = (kernel_size[0] + 1)/2  
-            # analgous for w_padding
-            required_conv_padding = ((kernel_size[0] + 1) / 2, (kernel_size[1] + 1) / 2)
-            
-            result = F.conv2d(audio_input, weights=(num_filters, self.in_channels,
-                kernel_size[0], kernel_size[1]), padding=required_conv_padding)
+        result = audio_input
 
-            # [batch, num_filters, ?, 80]
+        for conv_weight, conv_padding in self.conv_params:
+            result = F.conv2d(result, weight=conv_weight.to(audio_input.device), 
+                padding=conv_padding)
+
+            # [batch, num_filters, unroll_length, ?]
             result = self.relu(result)
 
-            # also maintain h/w through max-pooling layer
-            # h_out = ((h_in + (2 * h_padding) - (1 * (kernel_size[0] - 1) - 1)) / stride[0] ) + 1 
-            # -> (h_in + (2 * h_padding) - (kernel_size[0] - 2)) = stride[0] * h_in - stride[0]
-            # -> h_padding = ((stride[0] - 1) * h_in - stride[0] + kernel_size[0] - 2) / 2
-            required_pool_padding = (((stride[0] - 1) * timesteps - stride[0] + kernel_size[0] - 2) / 2,
-                ((stride[1] - 1) * freq_bands - stride[1] + kernel_size[1] - 2) / 2)
+            # [batch, num_filters, unroll_length, ?]
+            result = F.max_pool2d(result, kernel_size=self.pool_kernel, stride=self.pool_stride)
 
-            # [batch, num_filters, ?, 80]
-            result = F.max_pool2d(result, kernel_size=self.pool_kernel, stride=self.pool_stride,
-                padding=required_pool_padding)
-
-        # [batch, num_filters[1], ?, 80]
-        # -> [batch, ?, 83]; transpose, then flatten channel/freq. dimensions
+        # [batch, num_filters[-1], unroll_length, ?]
+        # -> [batch, unroll_length, # features]; transpose, then flatten channel/freq. dimensions
         # shape is now (batch, timestep, features)
         result = result.transpose(1, 2).flatten(2, 3)
 
@@ -80,6 +80,7 @@ class PlacementRNN(nn.Module):
     #   timestep ~ unrolling length
     # chart_features: [batch, num_features] (concat. of one-hot representations)
     def forward(self, processed_audio_input, chart_features, states, input_lengths):
+        breakpoint()
         batch_size = processed_audio_input.size(0)
         unroll_length = processed_audio_input.size(1)
         device = processed_audio_input.device
@@ -87,14 +88,13 @@ class PlacementRNN(nn.Module):
         # [batch, unroll_length, input_size] concat audio input with chart features
         # only concatenate the features when no sequence is padded (leave out towards the end)
         if all(input_lengths[0] == length for length in input_lengths):
-            chart_features = chart_features.repeat(1, unroll_length).view(batch_size, seq_len, -1)
+            chart_features = chart_features.repeat(1, unroll_length).view(batch_size, unroll_length, -1)
             lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
         else:
             lstm_input = processed_audio_input
 
         # pack the sequence
-        lstm_input = pack_padded_sequence(lstm_input, input_lengths, batch_first=True,
-            enforce_sorted=False)
+        lstm_input = pack_padded_sequence(lstm_input, input_lengths, batch_first=True, enforce_sorted=False)
 
         # [batch, unroll_length, hidden_size] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
@@ -145,7 +145,7 @@ class PlacementRNN(nn.Module):
 # *in addition* to the previous steps in the chart it has seen via the rnn hidden state
 
 class SelectionRNN(nn.Module):
-    def __init__(self, num_lstm_layers, input_size, hidden_size, hidden_weight, dropout):
+    def __init__(self, num_lstm_layers, input_size, hidden_size, hidden_weight, dropout = 0.5):
         super().__init__()
         
         self.num_lstm_layers = num_lstm_layers
