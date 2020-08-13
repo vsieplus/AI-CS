@@ -45,8 +45,8 @@ ui <- navbarPage(
         side_by_side(checkboxGroupInput('save_formats', 'Output formats:',
                                         choices = CHART_FORMATS, inline = TRUE), second = TRUE),
       
-        side_by_side(actionButton('generate', 'Generate!', icon = icon('angle-right'))),
-        side_by_side(downloadButton('download', 'Download', icon = icon('arrow-down')),
+        side_by_side(actionButton('generate_chart', 'Generate!', icon = icon('angle-right'))),
+        side_by_side(downloadButton('download_chart', 'Download', icon = icon('arrow-down')),
                      second = TRUE, padding = '30px')
       ),
      
@@ -68,8 +68,9 @@ ui <- navbarPage(
         
         # model output visualizations
         
-        # step chart visualization
-        imageOutput('chart_plot')
+        # step chart/distribution visualization
+        plotOutput('chart_section_plot'),
+        plotOutput('chart_distribution_plot')
       )
     )
   ),

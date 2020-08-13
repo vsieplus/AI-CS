@@ -8,6 +8,18 @@ source('visualize.R', local = TRUE)
 
 server <- function(input, output, session) {
   
+  # update model summary text
+  output$model_summary <- renderText({
+    getModelSummary(input$model)
+  })
+  
+  # update level slider and model options based on chart type
+  observeEvent(input$chart_type, {
+    n_levels <- CHART_LEVELS[[input$chart_type]]
+    updateSliderInput(session, 'chart_level', max = n_levels)
+    
+    updateSelectInput(session, 'model', choices = modelsList[[input$chart_type]])
+  })
   
   # produce spectrogram plot for new audio file
   output$spectrogram_plot <- renderPlot({
@@ -23,21 +35,46 @@ server <- function(input, output, session) {
                              style = 'display: none;'))
   })
   
-  # update model summary
-  output$model_summary <- renderText({
-    getModelSummary(input$model)
+  # perform chart generation once the audio file is uploaded
+  # store model outputs + the generated notes/times
+  chartData <- eventReactive(input$generate_chart, {
+    req(input$audio_file)
+    generateChart(input$audio_file$datapath, input$model, input$chart_level,
+                  input$chart_type, input$song_title, input$artist, input$bpm,
+                  input$save_formats)
   })
   
-  # update level slider and model options based on chart type
-  observeEvent(input$chart_type, {
-    n_levels <- CHART_LEVELS[[input$chart_type]]
-    updateSliderInput(session, 'chart_level', max = n_levels)
-    
-    updateSelectInput(session, 'model', choices = modelsList[[input$chart_type]])
-  })
+  # progress bar(s) (generation complete, saving complete)
+  
+  # save the chart once it's been generated
+  output$download_chart <- downloadHandler(
+    filename = function () {
+      if(length(chartData[['saveFormats']]) > 1) {
+        ext = '.zip'
+      } else {
+        ext = chartData[['saveFormats']][0]
+      }
+      
+      # use same name as audio file
+      paste0(chartData[['name']], ext)
+    },
+    content = saveCharts
+  )
+  
+  # produce model output plots after generation
+  
+  
+  # produce chart plots
+  output$chart_section_plot <- renderPlot({
+    plotChartSection(chartData[['notes']])
+  }, height = 360, width = 600)
+  
+  output$chart_distribution_plot <- renderPlot({
+    plotChartDist(chartData[['notes']])
+  }, height = 400, width = 600)
 }
 
 # to deploy to shinyapps.io
-# setwd("C:/Users/Ryan/Documents/gmdev/projects/AICS/AICS/webshiny")
+# setwd("C:/Users/Ryan/Documents/gmdev/projects/AICS/AICS/shiny")
 # library(rsconnect)
 # deployApp(appdir) -> login to shinyapps
