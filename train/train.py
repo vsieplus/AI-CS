@@ -17,14 +17,15 @@ from arrow_seq2seq import AudioEncoder, ArrowDecoder
 from arrow_transformer import ArrowTransformer
 from stepchart import StepchartDataset, get_splits, collate_charts
 
-ABS_PATH = str(pathlib.Path(__file__).parent.absolute())
+ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
 MODELS_DIR = os.path.join(ABS_PATH, 'models')
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset under data/datasets/subsets/')
-    parser.add_argument('--dataset_path', type=str, default=None, help='Alternatively, provide direct path to dataset')
+    parser.add_argument('--dataset_path', type=str, default=None, 
+        help='Alternatively, provide direct path to dataset json file')
     parser.add_argument('--save_dir', type=str, default=None, help="""Specify custom output directory to save
         models to. If blank, will save in models/dataset_name""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
@@ -33,8 +34,11 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
 
-    if not args.dataset_path and args.dataset_name:
-        args.dataset_path = os.path.join(DATASETS_DIR, args.dataset_name)
+    if not args.dataset_path:
+        if args.dataset_name:
+            args.dataset_path = os.path.join(DATASETS_DIR, args.dataset_name + '.json')
+        else:
+            raise ValueError('--dataset_name or --dataset_path required')
 
     if not args.save_dir:
         args.save_dir = os.path.join(MODELS_DIR, os.path.split(args.dataset_path)[-1])
@@ -82,24 +86,24 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
     step_frames = batch['step_frames']              # which audio frames recorded in chart data
 
     # compute the first and last audio frames coinciding with chart non-emtpy step placements
-    chart_placement_indices = [(chart_placements[b] == 1).nonzero() for b in range(batch_size)]
-    first_frame = min(step_frames[b][indices[0]] for b, indices in enumrate(chart_placement_indices))
-    last_frame = max(step_frames[b][indices[-1]] for b, indices in enumrate(chart_placement_indices))
+    chart_placement_indices = [(chart_placements[b] == 1).nonzero(as_tuple=False) for b in range(batch_size)]
+    first_frame = min(step_frames[b][indices[0]] for b, indices in enumerate(chart_placement_indices))
+    last_frame = max(step_frames[b][indices[-1]] for b, indices in enumerate(chart_placement_indices))
 
     total_loss = 0
 
     # final_shape -> [batch, # of nonempty chart frames, hidden]
-    clstm_hiddens = [[] for _ in batch_size]
+    clstm_hiddens = [[] for _ in range(batch_size)]
 
     # unrolling/bptt
-    num_unrollings = PLACEMENT_UNROLLING_LEN // num_audio_frames + 1
-    last_unroll_len = PLACEMENT_UNROLLING_LEN % num_audio_frames
+    num_unrollings = (num_audio_frames + 1) // PLACEMENT_UNROLLING_LEN
+    last_unroll_len = num_audio_frames % PLACEMENT_UNROLLING_LEN
     states = rnn.initStates(batch_size, device)
     
     # get representation of audio lengths for each unrolling
     # [full frames, last frame length]
     # (e.g. [100, 100, 100, 64] -> store (3,64))
-    audio_unroll_lengths = [(batch['audio_lengths'][b], 
+    audio_unroll_lengths = [(batch['audio_lengths'][b] // PLACEMENT_UNROLLING_LEN, 
                              batch['audio_lengths'][b] % PLACEMENT_UNROLLING_LEN) 
                             for b in range(batch_size)]
 
@@ -123,9 +127,8 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
 
         # [batch, unroll_len, 2] / [batch, unroll_len, hidden] / (*...hidden x 2)
         logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states,
-                                           [unroll_length for b in range(batch_size)
-                                            if audio_unroll_lengths[b][0] - 1 <= unrolling
-                                            else audio_unroll_lengths[b][1]])
+            [unroll_length if audio_unroll_lengths[b][0] - 1 <= unrolling
+             else audio_unroll_lengths[b][1] for b in range(batch_size)])
 
         # for each batch example, if this audio frame also in the chart, use actual target at that frame
         targets = torch.zeros_like(batch_size, unroll_length, device=device)
@@ -185,11 +188,11 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
     placement_cnn = PlacementCNN(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                  PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE).to(device)
     placement_rnn = PlacementRNN(NUM_PLACEMENT_LSTM_LAYERS, PLACEMENT_INPUT_SIZE,
-                                 PLACEMENT_HIDDEN_SIZE).to(device)
+                                 HIDDEN_SIZE).to(device)
     placement_optim = optim.SGD(list(placement_cnn.parameters()) + list(placement_rnn.parameters()), 
         lr=PLACEMENT_LR, momentum=0.9)
 
-    selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
+    selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_VOCAB_SIZES[dataset_type], 
                                  HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
     selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR, momentum=0.9)
 
@@ -199,7 +202,8 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
             print(f'Loading checkpoint from {load_checkpoint}...')
             checkpoint = torch.load(load_checkpoint)
 
-            # only restore epoch/best loss values when not restarting           
+            # only restore epoch/best loss values when not restarting    
+            # (i.e. give option to restart training on a pretrained-model)       
             if not restart:
                 start_epoch = checkpoint['epoch']
                 curr_batch = checkpoint['curr_batch']
@@ -279,8 +283,8 @@ def main():
     print(f"""Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
         Valid: {len(valid_data)}, Test: {len(test_data)}""")
 
-    run_models(train_iter, valid_iter, NUM_EPOCHS, dataset_type, args.save_dir, 
-        args.load_checkpoint, args.restart, device)
+    run_models(train_iter, valid_iter, NUM_EPOCHS, dataset_type, device, args.save_dir, 
+        args.load_checkpoint, args.restart)
 
 if __name__ == '__main__':
     main()
