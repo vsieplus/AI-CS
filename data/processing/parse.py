@@ -20,7 +20,7 @@ UCS_SPLIT_PATTERNS = {
     'double': r'((?:[XWMH.]{10}\n)*)'
 }
 
-UCS_CHART_ATTR_PATTERN = re.compile(r':([a-z_]*)=(.*)')
+UCS_CHART_ATTR_PATTERN = re.compile(r':([A-z_]*)=(.*)')
 SSC_CHART_ATTR_PATTERN = re.compile(r'#([^:]*):([^;]*);')
 
 int_parser = lambda x: int(x.strip()) if x.strip() else None
@@ -131,7 +131,7 @@ def ssc_notes_parser(x):
     return measures_clean
 
 # directly compute ([], time, beat, note)
-def ucs_notes_parser(chart_txt, chart_sections, chart_type):    
+def ucs_notes_parser(chart_txt):    
     # divide splits into their respective sections
     curr_measure = 0
     curr_absolute_beat = 0.0
@@ -143,6 +143,15 @@ def ucs_notes_parser(chart_txt, chart_sections, chart_type):
     delay_secs = 0.0
     previous_sections_time = 0.0
 
+    for attr_name, attr_val in UCS_CHART_ATTR_PATTERN.findall(chart_txt):
+        if attr_name == 'Mode':
+            chart_type = attr_val.rstrip().lower() # "Single" or "Double"
+            break
+
+    # each ucs chart section consists of 4 meta-values plus the notes themselves in splits:
+    # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
+    chart_sections = re.findall(UCS_SECTION_PATTERN + UCS_SPLIT_PATTERNS[chart_type], chart_txt)
+    
     for bpm, delay_ms, beats_per_measure, splits_per_beat, splits_txt in chart_sections:
         bpm = float(bpm)
         delay_ms = float(delay_ms)
@@ -296,25 +305,16 @@ def parse_ucs_txt(chart_txt):
         if attr_name.islower():
             attrs[attr_name] = attr_val
 
-    # find path to music based on CS___ code
-    music_fp = os.path.join(UCS_BASE_PATH, attrs['name'], attrs['name'] + '.mp3')
-    if not os.path.isfile(music_fp):
-        raise ValueError("""Music file for {} not found. Please run ucs_add_metadata.py
-            with --scrape and --download options""".format(attrs['name']))
-    
-    attrs['music'] = music_fp
+    # guess audio file name based on CS__ code / filename (if no metadata, skip - search later)
+    if 'name' in attrs:
+        attrs['music'] = (attrs['name'] + '.mp3')
 
-    # each ucs chart section consists of 4 meta-values plus the notes themselves in splits:
-    # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
-    chart_sections = re.findall(UCS_SECTION_PATTERN + UCS_SPLIT_PATTERNS[attrs['chart_type']], chart_txt)
-    
     # represent charts as singleton list
     attrs['charts'] = [{
         'stepstype': 'pump-' + attrs['chart_type'],
         'meter': attrs['meter'],
         'credit': attrs['step_artist'],
-        'offset': chart_sections[0][1],      # use delay of first section as offset
-        'notes': ucs_notes_parser(chart_txt, chart_sections, attrs['chart_type'])
+        'notes': ucs_notes_parser(chart_txt)
     }]
     
     return attrs
