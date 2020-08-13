@@ -12,7 +12,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from hyper import *
-from arrow_rnn_models import PlacementCNN, PlacementRNN, SelectionRNN
+from arrow_rnns import PlacementCNN, PlacementRNN, SelectionRNN
+from arrow_seq2seq import AudioEncoder, ArrowDecoder
 from arrow_transformer import ArrowTransformer
 from stepchart import StepchartDataset, get_splits, collate_charts
 
