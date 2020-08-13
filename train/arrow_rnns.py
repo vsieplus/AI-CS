@@ -52,9 +52,9 @@ class PlacementCNN(nn.Module):
             # [batch, num_filters, unroll_length, ?]
             result = F.max_pool2d(result, kernel_size=self.pool_kernel, stride=self.pool_stride)
 
-        # [batch, num_filters[-1], unroll_length, ?]
-        # -> [batch, unroll_length, # features]; transpose, then flatten channel/freq. dimensions
-        # shape is now (batch, timestep, features)
+        # [batch, num_filters[-1], unroll_length, 160]
+        # -> [batch, unroll_length, 160]; transpose, then flatten channel/freq. dimensions
+        # shape is now (batch, timestep, processed features)
         result = result.transpose(1, 2).flatten(2, 3)
 
         return result
@@ -80,7 +80,6 @@ class PlacementRNN(nn.Module):
     #   timestep ~ unrolling length
     # chart_features: [batch, num_features] (concat. of one-hot representations)
     def forward(self, processed_audio_input, chart_features, states, input_lengths):
-        breakpoint()
         batch_size = processed_audio_input.size(0)
         unroll_length = processed_audio_input.size(1)
         device = processed_audio_input.device
@@ -113,8 +112,8 @@ class PlacementRNN(nn.Module):
             linear_input = lstm_out[:, i]
             linear_input = self.dropout(self.relu(self.linear1(linear_input)))
             logits = self.dropout(self.relu(self.linear2(linear_input)))
-
-            all_logits.append(logits.unsqueeze(0))
+            
+            all_logits.append(logits)
 
         logits = torch.cat(all_logits, dim=0)
         all_logits.clear()
