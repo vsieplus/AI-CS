@@ -1,6 +1,6 @@
 # use a model to generate a chart with the specified settings
 
-library(reticulate) # change to your python path
+library(reticulate) # change to your python path/conda environment
 reticulate::use_python('/home/vsie/anaconda3/bin/python3.8')
 reticulate::use_condaenv('aics')
 #generate <- reticulate::import_from_path('generate', path = file.path('..', 'generate'))
