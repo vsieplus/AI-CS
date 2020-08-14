@@ -77,6 +77,7 @@ def collate_charts(batch):
 			'audio_lengths': audio_lengths,
 			'chart_feats': chart_feats,
 			'placement_targets': step_placements,
+			'step_frames': step_frames,
 			'step_sequence': step_sequence,
 			'sequence_lengths': sequence_lengths}
 
@@ -347,7 +348,8 @@ class Chart:
 		assert(self.chart_type in CHART_PERMUTATIONS)
 
 		# concat one-hot encodings of chart_type/level
-		chart_type_one_hot = [0 for _ in range(N_CHART_TYPES) if self.chart_type == 'pump-single' else 1]
+		chart_type_one_hot = [0 if self.chart_type == 'pump-single' else 1
+							  for _ in range(N_CHART_TYPES)]
 		level_one_hot = [0] * N_LEVELS
 		level_one_hot[self.level - 1] = 1
 		self.chart_feats = chart_type_one_hot + level_one_hot
