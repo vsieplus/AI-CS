@@ -13,49 +13,40 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 # CNN part of the model takes in raw audio features and outputs processed features
 class PlacementCNN(nn.Module):
     # params define the two convolution layers
-    def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride):
+    def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride, device):
         super().__init__()
-
-        # conv layers use [time, frequency] as H/W dims; use same padding to maintain dims        
-        k = 1
-        conv_weights = [torch.randn(n_filters, in_channel, kernel_size[0], kernel_size[1]) *
-                        (-sqrt(k) - sqrt(k)) + sqrt(k) # uniform dist on [-1, 1]  
-                        for n_filters, kernel_size, in_channel in zip(num_filters, kernel_sizes, in_channels)]
 
         # maintain H/W dimensions (assume stride = dilation = 1)
         # ex) h_out = h_in + (2 * h_padding) - (1 * (kernel_size[0] - 1) - 1) + 1
         # wanted: h_out = h_in, -> h_padding = (-1 + (kernel_size[0] + 2))/2 = (kernel_size[0] + 1)/2  
         conv_padding = [((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)
                         for kernel_size in kernel_sizes]
-                    
-        self.conv_params = zip(conv_weights, conv_padding)
+        
+        self.conv1 = nn.Conv2d(in_channels=in_channels[0], out_channels=num_filters[0],
+            kernel_size = kernel_sizes[0], padding=conv_padding[0])
+        self.conv2 = nn.Conv2d(in_channels=in_channels[1], out_channels=num_filters[1],
+            kernel_size = kernel_sizes[1], padding=conv_padding[1])
 
         # after each convLayer; maxPool2d only in frequency dim. -> ~ maxPool1d
         self.relu = nn.ReLU()
-        self.pool_kernel = pool_kernel
-        self.pool_stride = pool_stride
+        self.max_pool2d = nn.MaxPool2d(kernel_size=pool_kernel, stride=pool_stride)
 
     # audio_input: [batch, 3, unroll_len, 80] (batch, channels, timestep, freq. bands)
     def forward(self, audio_input):
         timesteps = audio_input.size(2)     # 'h_in'
         freq_bands = audio_input.size(3)    # 'w_in'
-        
-        result = audio_input
 
-        for conv_weight, conv_padding in self.conv_params:
-            result = F.conv2d(result, weight=conv_weight.to(audio_input.device), 
-                padding=conv_padding)
-
-            # [batch, num_filters, unroll_length, ?]
-            result = self.relu(result)
-
-            # [batch, num_filters, unroll_length, ?]
-            result = F.max_pool2d(result, kernel_size=self.pool_kernel, stride=self.pool_stride)
+        # [batch, num_filters, unroll_length, ?]
+        conved1 = self.relu(self.conv1(audio_input))
+        pooled1 = self.max_pool2d(conved1)
 
         # [batch, num_filters[-1], unroll_length, 160]
+        conved2 = self.relu(self.conv2(pooled1))
+        pooled2 = self.max_pool2d(conved2)
+
         # -> [batch, unroll_length, 160]; transpose, then flatten channel/freq. dimensions
         # shape is now (batch, timestep, processed features)
-        result = result.transpose(1, 2).flatten(2, 3)
+        result = pooled2.transpose(1, 2).flatten(2, 3)
 
         return result
 
@@ -85,38 +76,27 @@ class PlacementRNN(nn.Module):
         device = processed_audio_input.device
 
         # [batch, unroll_length, input_size] concat audio input with chart features
-        # only concatenate the features when no sequence is padded (leave out towards the end)
-        if all(input_lengths[0] == length for length in input_lengths):
-            chart_features = chart_features.repeat(1, unroll_length).view(batch_size, unroll_length, -1)
-            lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
-        else:
-            lstm_input = processed_audio_input
+        #if all(input_lengths[0] == length for length in input_lengths):
+        chart_features = chart_features.repeat(1, unroll_length).view(batch_size, unroll_length, -1)
+        lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
 
         # pack the sequence
-        lstm_input = pack_padded_sequence(lstm_input, input_lengths, batch_first=True, enforce_sorted=False)
+        lstm_input_packed = pack_padded_sequence(lstm_input, input_lengths, batch_first=True, enforce_sorted=False)
 
         # [batch, unroll_length, hidden_size] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
-        lstm_out, (hn, cn) = self.lstm(lstm_input, states)
+        lstm_out_packed, (hn, cn) = self.lstm(lstm_input_packed, states)
 
         # unpack output
-        lstm_out, _ = pad_packed_sequence(lstm_out, batch_first=True)
+        lstm_out, _ = pad_packed_sequence(lstm_out_packed, batch_first=True)
         
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
 
-        # [batch, hidden] (use last layer hidden states as input to linear layer for each timestep)
-        all_logits = []
-        for i in range(unroll_length):
-            # [batch, hidden] -> [batch, 128] -> [batch, 1] (2 fully-connected relu layers w/dropout)
-            linear_input = lstm_out[:, i]
-            linear_input = self.dropout(self.relu(self.linear1(linear_input)))
-            logits = self.dropout(self.relu(self.linear2(linear_input)))
-            
-            all_logits.append(logits)
-
-        logits = torch.cat(all_logits, dim=0)
-        all_logits.clear()
+        # [batch, unroll_length, hidden] -> [batch, unroll, 128] -> [batch, unroll, 2] 
+        # use last layer hidden states as input; 2 fully-connected relu layers w/dropout
+        linear_input = self.dropout(self.relu(self.linear1(lstm_out)))
+        logits = self.dropout(self.relu(self.linear2(linear_input)))
 
         # return logits directly, along hidden state for each frame
         # [batch, unroll_length, 2] / [batch, unroll, hidden] / ([batch, hidden] x 2)
