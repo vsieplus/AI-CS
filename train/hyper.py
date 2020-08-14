@@ -12,7 +12,7 @@ AUDIO_FRAME_RATE = 100 # 10 ms per (audio) frame
 
 BATCH_SIZE = 1
 HIDDEN_SIZE = 128
-NUM_EPOCHS = 5
+NUM_EPOCHS = 12
 
 # actually bce loss, but use crossentropy for ignore_index functionality
 PLACEMENT_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
