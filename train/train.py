@@ -16,6 +16,7 @@ from arrow_rnns import PlacementCNN, PlacementRNN, SelectionRNN
 from arrow_seq2seq import AudioEncoder, ArrowDecoder
 from arrow_transformer import ArrowTransformer
 from stepchart import StepchartDataset, get_splits, collate_charts
+from util import report_memory
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
@@ -69,9 +70,9 @@ def save_checkpoint(p_cnn, p_rnn, s_rnn, p_optim, s_optim, epoch, curr_batch,
         shutil.copy(out_path, 'model_best.tar')
 
 # train the placement models with the specified parameters on the given batch
-def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
+def train_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch, device):
     cnn.train()
-    rnn.train() 
+    rnn.train()
 
     # [batch, 3, ?, 80] ; ? = (batch maximum) # of 10ms timesteps/frames in audio features
     audio_feats = batch['audio_feats'].to(device)
@@ -85,10 +86,17 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
     chart_placements = batch['placement_targets']   # if chart frame had a hit or not
     step_frames = batch['step_frames']              # which audio frames recorded in chart data
 
+    # the indices of step_frames which had step placements
+    step_placement_indices = [(chart_placements[b] == 1).nonzero(as_tuple=False).squeeze().tolist()
+                               for b in range(batch_size)]
+
+    # the subset of step_frames (audio frames) that had placements
+    step_placement_frames = torch.tensor([[step_frames[b][idx] for idx in step_placement_indices[b]]
+                                           for b in range(batch_size)])
+
     # compute the first and last audio frames coinciding with chart non-emtpy step placements
-    chart_placement_indices = [(chart_placements[b] == 1).nonzero(as_tuple=False) for b in range(batch_size)]
-    first_frame = min(step_frames[b][indices[0]] for b, indices in enumerate(chart_placement_indices))
-    last_frame = max(step_frames[b][indices[-1]] for b, indices in enumerate(chart_placement_indices))
+    first_frame = min(step_frames[b][indices[0]] for b, indices in enumerate(step_placement_indices))
+    last_frame = max(step_frames[b][indices[-1]] for b, indices in enumerate(step_placement_indices))
 
     total_loss = 0
 
@@ -102,59 +110,76 @@ def train_placement_batch(cnn, rnn, optimizer, criterion, batch, device):
     
     # get representation of audio lengths for each unrolling
     # [full frames, last frame length]
-    # (e.g. [100, 100, 100, 64] -> store (3,64))
+    # (e.g. [100, 100, 100, 64] -> (3,64))
     audio_unroll_lengths = [(batch['audio_lengths'][b] // PLACEMENT_UNROLLING_LEN, 
                              batch['audio_lengths'][b] % PLACEMENT_UNROLLING_LEN) 
                             for b in range(batch_size)]
 
+    # loop through all unrollings
     for unrolling in range(num_unrollings):
-        optimizer.zero_grad()
-
-        # skip audio frames outside chart range
-        audio_start_frame = max(unrolling * PLACEMENT_UNROLLING_LEN, first_frame)
+        audio_start_frame = unrolling * PLACEMENT_UNROLLING_LEN
         if unrolling == num_unrollings - 1:
             audio_end_frame = audio_start_frame + last_unroll_len
-        else:         
+        else:
             audio_end_frame = audio_start_frame + PLACEMENT_UNROLLING_LEN
-        audio_end_frame = min(audio_end_frame, last_frame)
         unroll_length = audio_end_frame - audio_start_frame
 
-        if unroll_length == 0:
+        # skip audio frames outside chart range
+        if (audio_start_frame + unroll_length < first_frame or 
+            audio_end_frame - unroll_length > last_frame + 1 or unroll_length == 0):
             continue
 
+        # compute relevant batch metavalues for padding/lengths
+        padded_seqs = [unrolling > audio_unroll_lengths[b][0] - 1 for b in range(batch_size)]
+        audio_lengths = [audio_unroll_lengths[b][1] if padded_seqs[b] else unroll_length
+                         for b in range(batch_size)]
+
         # [batch, unroll_len, 83] (batch, unroll length, audio features)
-        cnn_output = cnn(audio_feats[:, :, audio_start_frame:audio_end_frame])
+        cnn_input = audio_feats[:, :, audio_start_frame:audio_end_frame]
+        cnn_output = cnn(cnn_input)
 
         # [batch, unroll_len, 2] / [batch, unroll_len, hidden] / (*...hidden x 2)
-        logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states,
-            [unroll_length if audio_unroll_lengths[b][0] - 1 <= unrolling
-             else audio_unroll_lengths[b][1] for b in range(batch_size)])
+        logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states, audio_lengths)
 
         # for each batch example, if this audio frame also in the chart, use actual target at that frame
-        targets = torch.zeros_like(batch_size, unroll_length, device=device)
+        # otherwise use default zero value for no placement at all
+        targets = torch.zeros(batch_size, unroll_length, dtype=torch.long, device=device)
         for b in range(batch_size):
-            targets[b, chart_placement_indices[b]] = 1
+            # which frames to consider for the current unrolling
+            curr_unroll_frames = torch.logical_and(step_placement_frames[b] >= audio_start_frame,
+                                                   step_placement_frames[b] < audio_end_frame)
 
-            # if a sequence is padded during this unrolling, set targets to the ignore_index val.
-            if audio_unroll_lengths[b][0] - 1 > unrolling:
-                targets[b, audio_length - audio_start_frame:] = PAD_IDX
+            # which of them had placements?
+            curr_unroll_placements = step_placement_frames[b][curr_unroll_frames]
+
+            # (normalize to [0, unroll_length - 1])
+            curr_unroll_placements = curr_unroll_placements - audio_start_frame
+
+            targets[b, curr_unroll_placements] = 1
+
+            # for padded seqs, set targets to the ignore_index val.
+            targets[b, audio_lengths[b]:] = PAD_IDX
 
             # only clstm hiddens for chart frames with non-empty step placements
-            clstm_hiddens[b].append(clstm_hidden[b, chart_placement_indices])
+            clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_placements])
 
         # compute total loss for this unrolling
         loss = 0
         for step in range(unroll_length):
             loss += criterion(logits[:, step, :], targets[:, step])
-        loss.backward()
 
+        loss.backward()
+        
         # clip grads before step if L2 norm > 5
-        nn.utils.clip_grad_norm_(optimizer.params, max_norm=PLACEMENT_MAX_NORM, type=2)
+        nn.utils.clip_grad_norm_(placement_params, max_norm=PLACEMENT_MAX_NORM)
         optimizer.step()
+        optimizer.zero_grad()
 
         total_loss += loss.item()
 
-    return total_loss, clstm_hiddens
+    avg_loss_per_timestep = total_loss / num_audio_frames
+    
+    return avg_loss_per_timestep, clstm_hiddens
 
 def train_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens=None):
     rnn.train()
@@ -180,17 +205,16 @@ def evaluate_selection_batch(rnn, criterion, batch, clstm_hiddens):
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
-               restart, early_stopping=True, print_every_x_batch=10, validate_every_x_epoch=2, 
-               save_every_x_batch=20):
+               restart, early_stopping=True, print_every_x_batch=1, validate_every_x_epoch=2, 
+               save_every_x_batch=8):
     cpu_device = torch.device('cpu')
 
     # setup  or load models, optimizers
     placement_cnn = PlacementCNN(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
-                                 PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE).to(device)
-    placement_rnn = PlacementRNN(NUM_PLACEMENT_LSTM_LAYERS, PLACEMENT_INPUT_SIZE,
-                                 HIDDEN_SIZE).to(device)
-    placement_optim = optim.SGD(list(placement_cnn.parameters()) + list(placement_rnn.parameters()), 
-        lr=PLACEMENT_LR, momentum=0.9)
+                                 PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, device).to(device)
+    placement_rnn = PlacementRNN(NUM_PLACEMENT_LSTM_LAYERS, PLACEMENT_INPUT_SIZE, HIDDEN_SIZE).to(device)
+    placement_params = list(placement_cnn.parameters()) + list(placement_rnn.parameters())
+    placement_optim = optim.SGD(placement_params, lr=PLACEMENT_LR, momentum=0.9)
 
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_VOCAB_SIZES[dataset_type], 
                                  HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
@@ -231,23 +255,24 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
             continue
 
         print('Epoch: {}'.format(epoch))
+        # if device is gpu: report_memory()
 
-        for i, batch in tqdm(enumerate(train_iter)):
+        for i, batch in enumerate(train_iter):
             placement_loss, clstm_hiddens = train_placement_batch(placement_cnn,
-                placement_rnn, placement_optim, PLACEMENT_CRITERION, batch, device)
+                placement_rnn, placement_params, placement_optim, PLACEMENT_CRITERION, batch, device)
 
-            selection_loss = train_selection_batch(selection_rnn, selection_optim,
-                SELECTION_CRITERION, batch, device, clstm_hiddens)
+            #selection_loss = train_selection_batch(selection_rnn, selection_optim,
+            #    SELECTION_CRITERION, batch, device, clstm_hiddens)
 
-            if (i + 1) % print_every_x_batch:
+            if (i + 1) % print_every_x_batch == 0:
                 print(f'Batch {i}')
-                print(f'Placement model batch loss: {placement_loss}')        
-                print(f'Placement model batch loss: {selection_loss}')       
+                print(f'Placement model batch {i} avg. loss/timestep: {placement_loss}')        
+                #print(f'Selection model batch loss: {selection_loss}')       
 
             if (curr_batch + 1) % save_every_x_batch == 0:
-                save_checkpoint(placement_cnn, placement_rnn, selection_rnn, save_dir,
+                save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
                                 placement_optim, selection_optim, epoch, curr_batch,
-                                best_placement_valid_loss, best_selection_valid_loss)
+                                best_placement_valid_loss, best_selection_valid_loss, save_dir)
 
             curr_batch += 1
 

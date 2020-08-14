@@ -100,7 +100,7 @@ class PlacementRNN(nn.Module):
 
         # return logits directly, along hidden state for each frame
         # [batch, unroll_length, 2] / [batch, unroll, hidden] / ([batch, hidden] x 2)
-        return logits, lstm_out.detach(), (hn, cn)
+        return logits, lstm_out.detach(), (hn.detach(), cn.detach())
 
     # initial celll/hidden state for lstm
     def initStates(self, batch_size, device):
