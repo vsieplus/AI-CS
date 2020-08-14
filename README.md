@@ -1,6 +1,6 @@
 # AI Custom Step
 
-This project explores the use of neural networks to generate [Pump it Up](https://en.wikipedia.org/wiki/Pump_It_Up_(video_game_series)) 
+**AI Custom Step (AICS)** explores the use of neural networks to generate [Pump it Up](https://en.wikipedia.org/wiki/Pump_It_Up_(video_game_series)) 
 custom step charts from audio. This project was inspired by [Dance Dance Convolution (DDC)](https://github.com/chrisdonahue/ddc).
 
 ## Repo overview
