@@ -21,7 +21,7 @@ to check out our [twitter page](https://twitter.com/piu_aics), where we'll share
 generated charts periodically.
 
 If you are interested in trying to train your own models, or learning how the project works you can
-continue reading below. A quick way to get started is to setup a [conda](https://docs.conda.io/en/latest/) environment and install the project dependencies as below. The project will likely work best in a *nix environment. 
+continue reading below. A quick way to get started is to setup a [conda](https://docs.conda.io/en/latest/) environment and install the project dependencies as below. 
 
 ```bash
 conda create -n aics
