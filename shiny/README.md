@@ -10,5 +10,17 @@ If you're currently in this directory, you can run the app from the command line
 R -e "shiny::runApp()"
 ```
 
-If you do run it locally, be sure to change the value of `MODELS_DIR` in `generate.py` to wherever your
-models are located on your system.
+If you do run it locally, you may change the value of `MODELS_DIR` in `generate.R` to wherever your
+models are located on your system. The R packages used by the app are:
+
+```bash
+shiny
+shinythemes
+av
+ggplot2
+reticulate
+```
+
+In particular, the `reticulate` package provides an interface to python code. If you have
+already setup an anaconda environment, you should also change the environment parameter
+passed to `use_condaenv()`.
