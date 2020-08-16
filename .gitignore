@@ -5,3 +5,9 @@ data/dataset/*
 *.Rhistory
 *.RData
 *.log
+*.wav
+*.mp4
+train/models/*
+shiny/www/*
+shiny/models/*
+shiny/test/*

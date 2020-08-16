@@ -64,13 +64,13 @@ server <- function(input, output, session) {
   # produce model output plots after generation
   
   
-  # produce chart plots
+  # produce chart visualizations
   output$chart_section_plot <- renderPlot({
     plotChartSection(chartData[['notes']])
   }, height = 360, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
-    plotChartDist(chartData[['notes']])
+    plotChartDistribution(chartData[['notes']])
   }, height = 400, width = 600)
 }
 

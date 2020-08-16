@@ -2,13 +2,19 @@
 
 library(dplyr)
 library(ggplot2)
-library(ggimage)
+library(grid)
+library(extrafont)
+library(magick)
+library(reshape2)
 library(av)
 
 library(reticulate) # change to path to your python version
 parse <- import_from_path('parse', path = file.path('..', 'data', 'processing'))
 
+# loadfonts(device = 'win') [run this 1x]
 samplePath = file.path('www', 'clip.wav')
+
+## AUDIO VISUALIZATION ##############################
 
 # return a plot of a spectrogram 
 plotSpectrogram <- function(audioPath, startTime = 45.0, endTime = 55.0, saveMP4 = FALSE) {
@@ -30,6 +36,10 @@ plotSpectrogram <- function(audioPath, startTime = 45.0, endTime = 55.0, saveMP4
   plot(fft_data)
 }
 
+########################################################
+
+## CHART PROCESSING ####################################
+
 # returns a df with two columns, one row per time/step in the chart
 getNoteData <- function(chartPath) {
   chartName <- basename(chartPath)
@@ -41,10 +51,30 @@ getNoteData <- function(chartPath) {
     # list of length: # chart frames, each elem has the frame's
     # (beat phase [measure, beat split], abs. beat, time, notes)
     # ex) notes[[100]][[3]] = the time (s) at which the 100th frame occurs
-    notes <- parse$ucs_notes_parser(chartTxt)
+    parse_fn = parse$ucs_notes_parser
+    if(fileType == 'ssc') {
+      parse_fn = parse$parse_ssc_txt
+    }
+    
+    notes <- parse_fn(chartTxt)
     
     # extract 3rd/4th value (time/note) of each list element
     # restrict notes to display to start/end time
+    if(fileType == 'ssc') {
+      charts <- notes[['charts']]
+      
+      # ask user to choose which chart in the ssc file if > 1
+      if(length(charts) > 1) {
+        chartIdx <- menu(sapply(charts, function(c) {
+            paste0(strsplit(c[['stepstype']], '-')[[1]][-1], c[['meter']])
+          }), title = "Choose a chart")
+      } else {
+        chartIdx <- 1
+      }
+      
+      notes <- charts[[chartIdx]][['notes']]
+    }
+    
     times <- unlist(sapply(notes, '[', 3))
     steps <- unlist(sapply(notes, '[', 4))
     
@@ -66,7 +96,7 @@ convertToUCS <- function(steps) {
   holds <- rep(FALSE, nchar(steps[1]))
   for(i in seq(length(steps))) {
     startedHolds <- unlist(gregexpr('M', steps[i]))
-    if(startedHolds != -1) {
+    if(length(startedHolds) != 1 || startedHolds != -1) {
       holds[startedHolds] <- TRUE
     }
     
@@ -76,7 +106,7 @@ convertToUCS <- function(steps) {
     }    
     
     releasedHolds <- unlist(gregexpr('W', steps[i]))
-    if(releasedHolds != -1) {
+    if(length(startedHolds) != 1 || releasedHolds != -1) {
       holds[releasedHolds] <- FALSE
     }
   }
@@ -85,6 +115,19 @@ convertToUCS <- function(steps) {
   steps <- gsub('0|[^MWHX]', '.', steps)
   steps  
 }
+
+###########################################################
+
+## CHART VISUALIZATION ####################################
+
+notePositions <- list(top = '[1368]', center = '[27]', bottom = '[0459]')
+
+# arrow icons to plot
+notePaths <- rep(c('www/piudl.png', 'www/piuul.png', 'www/piuc.png',
+                   'www/piuur.png', 'www/piudr.png'), 2)
+names(notePaths) = seq(1, 10)
+noteIcons <- sapply(notePaths, image_read)
+noteColors <- c('#c3e9d0', '#8da6e2', '#6184d8', '#1e1014')
 
 # produce a plot of step chart section
 # noteData should be an m by 2 df, with observations of time/step
@@ -101,63 +144,121 @@ plotChartSection <- function(noteData, format = 'ucs', startTime = 45.0, endTime
     
 }
 
-# color based on step position (.X.X. -> red, X...X -> blue, ..X.. -> yellow)
-notePositions <- list(top = '[1368]', center = '[27]', bottom = '[0459]')
-noteColors <- c('r' = 'red', 'y' = 'yellow', 'b' = 'blue', 'ryb' = 'black',
-                'ry' = 'orange', 'rb' = 'purple', 'yb' = 'green')
+## START ####
+# adapted from https://gist.github.com/jonocarroll/2f9490f1f5e7c82ef8b791a4b91fc9ca
+icon_axis <- function(arrows, angle) {
+  structure(
+    list(img=noteIcons[1:arrows], angle=angle),
+    class = c("element_custom", "element_blank", "element_text", "element")
+  )
+}
 
-# add icons to axis labels
+element_grob.element_custom <- function(element, x, ...)  {
+  stopifnot(length(x) == length(element$img))
+  tag <- names(element$img)
+  # add vertical padding to leave space
+  g1 <- textGrob(label = '', x=x, rot = element$angle, vjust=0.6)
+  g2 <- mapply(rasterGrob, x=x, image=element$img[tag], 
+               MoreArgs=list(vjust=0.5, interpolate=FALSE,
+                             height=unit(7 ,"mm")),
+               SIMPLIFY=FALSE)
+  
+  gTree(children=do.call(gList, c(g2, list(g1))), cl="custom_axis")
+}
 
-# TODO try stacked bar chart, once col. for each step, sep. steps, holds
-# produce a plot of the entire step chart's distribution
-# same input type as above
-plotChartDistribution <- function(noteData, format = 'ucs') {
+# icon spacing
+grobHeight.custom_axis = heightDetails.custom_axis = function(x, ...) {
+  unit(12, "mm")
+}
+
+## END #####
+
+# count arrow types from note data
+# filter_fn should extract subset of note types
+# return total size of that subset
+filterNotes <- function(arrows, filter_fn) {
+  sapply(arrows, filter_fn)
+}
+
+getArrowDistribution <- function(noteData, num_arrows) {
+  # tabulate no. of steps per arrow, broken down by type
+  arrows_seq <- seq(0, num_arrows - 1)
+  arrows <- data.frame(arrow = arrows_seq)
+
+  arrows$steps <- filterNotes(arrows$arrow, function(a) { 
+    sum(sapply(noteData$steps, function(p) {
+      length(p) == 1 && a == p[[1]]
+    }))
+  })
+  
+  arrows$jumps <- filterNotes(arrows$arrow, function(a) {
+    sum(sapply(noteData$steps, function(s) length(s) == 2 & a %in% s) & 
+      sapply(noteData$holds, function(h) all(h == -2)))
+  })
+  
+  arrows$brackets <- filterNotes(arrows$arrow, function(a) {
+    sum(sapply(noteData$steps, function(s) length(s) >= 3 & a %in% s) | 
+      (sapply(noteData$holds, function(h) all(h != -2)) & 
+       sapply(noteData$steps, function(s) {
+        length(s) == 2 & a %in% s 
+       })))
+  })
+  
+  arrows$holds <- sapply(arrows$arrow, function(a) { 
+    sum(sapply(noteData$holds, function(p) a %in% p))
+  })
+  
+  arrows
+}
+
+# Plot distribution of chart steps
+plotChartDistribution <- function(noteData, format = 'ucs', chartTitle = '') {
   if(format == 'ssc') {
     noteData$step <- convertToUCS(noteData$step)
   }
   
   # filter empty steps + extract note positions
-  noteData <- filter(noteData, step != '.....')
-  noteData$positions <- lapply(noteData$step, function(s) {
-    unlist(gregexpr('[XMHW]', s)) - 1 
+  num_arrows <- nchar(as.character(noteData[1, 'step']))
+  noteData <- dplyr::filter(noteData, step != strrep('.', num_arrows))
+  
+  # values will be '-2' if no corresponding arrows found
+  noteData$steps <- lapply(noteData$step, function(s) {
+    indices = unlist(gregexpr('[X]', s)) - 1
   })
   
-  # map colors to steps; 2 or 7: center; otherwise
-  # (1368) ~ top steps: red), (0459 ~ bottom: blue)
-  noteData$color <- factor(sapply(noteData$positions, function(indices) {
-    color <- ''
-    if(length(grep(notePositions[['top']], indices)) > 0) {
-      color <- paste0(color, 'r') 
-    }
-    
-    if(length(grep(notePositions[['center']], indices)) > 0) {
-      color <- paste0(color, 'y') 
-    }
-    
-    if(length(grep(notePositions[['bottom']], indices)) > 0) {
-      color <- paste0(color, 'b') 
-    }
-    color
-  }))
+  noteData$holds <- lapply(noteData$step, function(s) {
+    indices = unlist(gregexpr('[MHW]', s)) - 1
+  })
   
-  # sort/filter freqs
-  freqs <- summary(noteData$step)
-  noteData$freqs <- lapply(noteData$step, function(s) freqs[names(freqs) == s])
-  noteData$step <- reorder(noteData$step, noteData$step, FUN=length)
+  arrows <- getArrowDistribution(noteData, num_arrows)
+  arrows_long <- melt(arrows, id.var = 'arrow')
+  arrow_labels <- c('Steps', 'Jumps', 'Brackets', 'Holds')
+  max_freq <- max(rowSums(arrows))
   
-  noteData <- filter(noteData, freqs > 10)
+  arrows_long$arrow <- as.factor(arrows_long$arrow)
   
-  maxFreq <- max(freqs)
-  freqSteps <- seq(0, (maxFreq %/% 50) * 50 + 50, 25)
+  if(nchar(chartTitle) > 0) {
+    chartTitle = paste0(' - ', chartTitle)
+  }
   
-  ggplot2::ggplot(noteData, aes(x = step, fill = color)) +
-    geom_bar(width = 0.75, color = 'black', alpha = 0.8) + 
-    theme(legend.position = 'none') +
-    labs(x = 'Step type', y = 'Frequency', 
-         title = 'Distribution of chart steps (freq. > 10)') +
-    coord_flip() +
-    scale_y_continuous(expand = c(0,0), breaks = freqSteps,
-                       limits = c(0, max(freqSteps))) +
-    scale_fill_manual(values = noteColors, aesthetics = c('color', 'fill'))
+  ggplot2::ggplot(arrows_long, aes(x = arrow, y = value, fill = variable)) +
+    geom_bar(stat = 'identity', width = 0.7, color = 'lightblue', alpha = 1) +
+    labs(y = 'Frequency', title = paste0('Step Chart Distribution', chartTitle)) +
+    scale_y_continuous(expand = c(0,  0.05), limits = c(0, max_freq + 25)) +
+    scale_fill_manual(breaks = waiver(), values = noteColors,
+                      name = "Step type", labels = arrow_labels) +
+    theme(text = element_text(family = 'Calibri', color = 'white', size = 12),
+          plot.title = element_text(size = 16),
+          plot.background = element_rect(fill = '#131711', color = 'lightblue'),
+          panel.background = element_rect(fill = 'black', color = 'lightblue'),
+          panel.grid.major.y = element_line(color='gray50'),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_line(color = 'gray30'),
+          panel.grid.minor = element_blank(),
+          axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
+          axis.title.x = element_blank(),
+          axis.text.y = element_text(color = 'white'),
+          legend.position = c(.1, .8),
+          legend.background = element_rect(fill = '#131711', color = 'lightblue'))
 }
 
