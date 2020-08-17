@@ -11,7 +11,7 @@ library(av)
 library(reticulate) # change to path to your python version
 parse <- import_from_path('parse', path = file.path('..', 'data', 'processing'))
 
-# loadfonts(device = 'win') [run this 1x]
+# loadfonts(device = 'win') [run this the first time loading extrafont]
 samplePath = file.path('www', 'clip.wav')
 
 ## AUDIO VISUALIZATION ##############################
@@ -51,16 +51,13 @@ getNoteData <- function(chartPath) {
     # list of length: # chart frames, each elem has the frame's
     # (beat phase [measure, beat split], abs. beat, time, notes)
     # ex) notes[[100]][[3]] = the time (s) at which the 100th frame occurs
-    parse_fn = parse$ucs_notes_parser
-    if(fileType == 'ssc') {
-      parse_fn = parse$parse_ssc_txt
-    }
-    
-    notes <- parse_fn(chartTxt)
-    
-    # extract 3rd/4th value (time/note) of each list element
-    # restrict notes to display to start/end time
-    if(fileType == 'ssc') {
+    if(fileType == 'ucs') {
+      notes <- parse$ucs_notes_parser(chartTxt)
+    } else if(fileType == 'ssc') {
+      notes <- parse$parse_ssc_txt(chartTxt)
+      
+      # extract 3rd/4th value (time/note) of each list element
+      # restrict notes to display to start/end time
       charts <- notes[['charts']]
       
       # ask user to choose which chart in the ssc file if > 1
@@ -78,7 +75,22 @@ getNoteData <- function(chartPath) {
     times <- unlist(sapply(notes, '[', 3))
     steps <- unlist(sapply(notes, '[', 4))
     
-    data.frame(time = times, step = steps, stringsAsFactors = TRUE)
+    noteData <- data.frame(time = times, step = steps, stringsAsFactors = TRUE)
+    
+    if(fileType == 'ssc') {
+      noteData$step <- convertToUCS(noteData$step)
+    }
+    
+    # values will be '-2' if no corresponding arrows found
+    noteData$steps <- lapply(noteData$step, function(s) {
+      unlist(gregexpr('[X]', s)) - 1
+    })
+    
+    noteData$holds <- lapply(noteData$step, function(s) {
+      unlist(gregexpr('[MHW]', s)) - 1
+    })
+    
+    noteData
   } else {
     print(sprintf('Chart file %s does not exist', chartPath))
     return(NULL)
@@ -106,7 +118,7 @@ convertToUCS <- function(steps) {
     }    
     
     releasedHolds <- unlist(gregexpr('W', steps[i]))
-    if(length(startedHolds) != 1 || releasedHolds != -1) {
+    if(length(releasedHolds) != 1 || releasedHolds != -1) {
       holds[releasedHolds] <- FALSE
     }
   }
@@ -128,21 +140,6 @@ notePaths <- rep(c('www/piudl.png', 'www/piuul.png', 'www/piuc.png',
 names(notePaths) = seq(1, 10)
 noteIcons <- sapply(notePaths, image_read)
 noteColors <- c('#c3e9d0', '#8da6e2', '#6184d8', '#1e1014')
-
-# produce a plot of step chart section
-# noteData should be an m by 2 df, with observations of time/step
-plotChartSection <- function(noteData, format = 'ucs', startTime = 45.0, endTime = 55.0) {
-  if(format == 'ssc') {
-    # convert notes to ucs
-    # df$step <- lapply(df$step, convertToUCS)
-  }
-  
-  noteData <- filter(noteData, time >= startTime & time <= endTime)
-  
-  # y axis time (going down)
-#  ggplot2::ggplot(noteData, aes(y = time, x = step)) +
-    
-}
 
 ## START ####
 # adapted from https://gist.github.com/jonocarroll/2f9490f1f5e7c82ef8b791a4b91fc9ca
@@ -172,6 +169,39 @@ grobHeight.custom_axis = heightDetails.custom_axis = function(x, ...) {
 }
 
 ## END #####
+
+# produce a plot of step chart section (i.e. a still-shot of a stepchart)
+# noteData should be an m x 2 df, with observations of time/step
+plotChartSection <- function(noteData, startTime = 45.0, endTime = 55.0, epsilon = 1e-5) {
+  num_arrows <- nchar(as.character(noteData[1, 'step']))
+  noteData <- filter(noteData, time >= startTime & time <= endTime)
+  
+  arrows <- seq(0, num_arrows - 1)
+  arrow_positions <- lapply(arrows, function(a) {
+    sapply(noteData$steps, function(s) a %in% s)
+  })
+  
+  names(arrow_positions) <- arrows
+  noteData <- cbind(noteData, arrow_positions)
+  
+  # list of arrow ids with a note for each timestep
+  timeNotes <- lapply(noteData$time, function(time) {
+    which(sapply(names(arrow_positions), function(a) {
+      noteData[abs(noteData$time - time) < epsilon, a]
+    })) - 1
+  })
+  
+  noteTimes <- data.frame(time = sapply(noteData$time, function(t) {
+    rep(t, length(timeNotes[[which(abs(noteData$time - t) < epsilon)]]))
+  }), notes = unlist(timeNotes))
+  
+  # time vs notes
+  ggplot2::ggplot(noteTimes, aes(x = notes, y = time)) +
+    geom_point() + 
+    theme(axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
+          axis.title.x = element_blank()) +
+    scale_y_continuous(trans = 'reverse')
+}
 
 # count arrow types from note data
 # filter_fn should extract subset of note types
@@ -212,23 +242,10 @@ getArrowDistribution <- function(noteData, num_arrows) {
 }
 
 # Plot distribution of chart steps
-plotChartDistribution <- function(noteData, format = 'ucs', chartTitle = '') {
-  if(format == 'ssc') {
-    noteData$step <- convertToUCS(noteData$step)
-  }
-  
+plotChartDistribution <- function(noteData, chartTitle = '') {
   # filter empty steps + extract note positions
   num_arrows <- nchar(as.character(noteData[1, 'step']))
   noteData <- dplyr::filter(noteData, step != strrep('.', num_arrows))
-  
-  # values will be '-2' if no corresponding arrows found
-  noteData$steps <- lapply(noteData$step, function(s) {
-    indices = unlist(gregexpr('[X]', s)) - 1
-  })
-  
-  noteData$holds <- lapply(noteData$step, function(s) {
-    indices = unlist(gregexpr('[MHW]', s)) - 1
-  })
   
   arrows <- getArrowDistribution(noteData, num_arrows)
   arrows_long <- melt(arrows, id.var = 'arrow')
