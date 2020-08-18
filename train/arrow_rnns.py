@@ -63,7 +63,7 @@ class PlacementRNN(nn.Module):
             num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
         self.linear1 = nn.Linear(in_features=hidden_size, out_features=128)
-        self.linear2 = nn.Linear(in_features=128, out_features=2)   # 0 or 1 for step/no step
+        self.linear2 = nn.Linear(in_features=128, out_features=2)   # 0 or 1 for no step/step
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
@@ -130,7 +130,7 @@ class SelectionRNN(nn.Module):
         self.num_lstm_layers = num_lstm_layers
         self.hidden_size = hidden_size
 
-        # how much to pay attention to hidden state from this rnn/the placement model
+        # how much to pay attention to hidden state from this rnn vs. from the placement model
         self.hidden_weight = hidden_weight
         self.placement_weight = 1 - hidden_weight
 
@@ -141,15 +141,19 @@ class SelectionRNN(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
-    # step_input: [batch, unfoldings, input_size]
+    # step_input: [batch, unroll_length, input_size]
     # clstm_hidden, hidden, cell: [num_lstm_layers, batch, hidden_size]
-    def forward(self, step_input, clstm_hidden, hidden, cell):
+    def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
         # [batch, hidden] hidden_input at time t = a * h_{t-1} + b * h_t', a is hidden_weight
         weighted_hidden = self.hidden_weight * hidden + self.placement_weight * clstm_hidden
 
-        # [batch, unfoldings, hidden] (lstm_out: hidden states from last layer)
+        lstm_input_packed = pack_padded_sequence(step_input, input_lengths, batch_first=True, enforce_sorted=False)
+
+        # [batch, unroll_length, hidden] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
-        lstm_out, (hn, cn) = self.lstm(step_input, (weighted_hidden, cell))
+        lstm_out_packed, (hn, cn) = self.lstm(step_input, (weighted_hidden, cell))
+
+        lstm_out, _ = pad_packed_sequence(lstm_out_packed, batch_first=True)
 
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
