@@ -12,8 +12,8 @@ from torch.nn.utils.rnn import pad_sequence
 from pathlib import Path
 from joblib import Memory
 
-from extract_audio_feats import extract_audio_feats
-from hyper import PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, AUDIO_FRAME_RATE
+from extract_audio_feats import extract_audio_feats, load_audio
+from hyper import PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
 ABS_PATH = str(Path(__file__).parent.absolute())
@@ -79,7 +79,10 @@ def collate_charts(batch):
 			'placement_targets': step_placements,
 			'step_frames': step_frames,
 			'step_sequence': step_sequence,
-			'sequence_lengths': sequence_lengths}
+			'sequence_lengths': sequence_lengths,
+			'sample_rate': batch[0].sample_rate}
+
+# TODO write sampler which groups examples by sample rate (enforce required match=TRUE)
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
@@ -199,8 +202,10 @@ class Song:
 		self.genre = genre
 		self.songtype = songtype
 
+		waveform, self.sample_rate = load_audio(audio_fp)
+
 		# shape [3, ?, 80]
-		self.audio_feats = extract_audio_feats(audio_fp)
+		self.audio_feats = extract_audio_feats(waveform, self.sample_rate)
 
 CHART_PERMUTATIONS = {
 	'pump-single': {
@@ -322,7 +327,7 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 			continue
 
 		# list containing absolute frame numbers corresponding to each split
-		step_frames.append(int(round(time * AUDIO_FRAME_RATE)))
+		step_frames.append(int(round(time * CHART_FRAME_RATE)))
 
 		# for each frame, 0 = no step, 1 = some step
 		step_this_frame = STEP_PATTERNS[filetype].search(steps)
@@ -331,8 +336,7 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 		# only store non-empty steps in the sequence
 		if step_this_frame:
 			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
-		
-	#breakpoint()				
+
 	return step_frames, step_placements, sequence_to_tensor(step_sequence)
 
 class Chart:
