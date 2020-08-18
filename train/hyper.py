@@ -8,11 +8,13 @@ PAD_IDX = -50
 
 N_CHART_TYPES = 2
 N_LEVELS = 28
-AUDIO_FRAME_RATE = 100 # 10 ms per (audio) frame
+CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
 
 BATCH_SIZE = 1
 HIDDEN_SIZE = 128
-NUM_EPOCHS = 12
+NUM_EPOCHS = 25
+
+HOP_LENGTH = 512
 
 # actually bce loss, but use crossentropy for ignore_index functionality
 PLACEMENT_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
@@ -29,12 +31,21 @@ PLACEMENT_POOL_KERNEL = (1, 3)
 
 PLACEMENT_UNROLLING_LEN = 100       # 100 frames of unrolling for placement model
 
+# Thresholds for peak picking
+MIN_THRESHOLD = 0.25
+MAX_THRESHOLD = 0.75
+MAX_CHARTLEVEL = 28
+
 # chart_feats + output of cnn -> last filter size * pooled audio feats -> 160
 PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
 SELECTION_LR = 0.005
+
+SELECTION_HIDDEN_WEIGHT = 0.7
+NUM_SELECTION_LSTM_LAYERS = 2
+SELECTION_UNROLLING_LEN = 64
 
 # arrow states: 
 #   0 - OFF,
@@ -52,7 +63,3 @@ SELECTION_VOCAB_SIZES = {
     'pump-single': NUM_ARROW_STATES ** 5,   # 1024 possible states
     'pump-double': NUM_ARROW_STATES ** 10,  # 1,048,576 (if unbounded) -> limit?
 }
-
-SELECTION_HIDDEN_WEIGHT = 0.7
-
-NUM_SELECTION_LSTM_LAYERS = 2
