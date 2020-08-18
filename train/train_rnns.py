@@ -231,14 +231,14 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
         for b in range(batch_size):
             # which frames to consider for the current unrolling
             curr_unroll_chart_frames = torch.logical_and(step_placement_frames[b] >= chart_start_frame,
-                                                         step_placement_frames[b] < chart_end_frame)
+                                                         step_placement_frames[b] < chart_end_frame, device=device)
 
             # which of them had placements?
             curr_unroll_chart_placements = step_placement_frames[b][curr_unroll_chart_frames]
 
             # convert to respective audio frames, + normalize to [0, unroll_length-1]
-            curr_unroll_audio_placements = (curr_unroll_chart_placements / CHART_FRAME_RATE 
-                * SAMPLE_RATE / HOP_LENGTH).int() - audio_start_frame
+            curr_unroll_audio_placements = (curr_unroll_chart_placements.float() / CHART_FRAME_RATE 
+                * sample_rate / HOP_LENGTH).int().long() - audio_start_frame
 
             targets[b, curr_unroll_audio_placements] = 1
 
@@ -257,11 +257,11 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
             loss.backward()
             
             # clip grads before step if L2 norm > 5
-            nn.utils.clip_grad_norm_(placement_params, max_norm=PLACEMENT_MAX_NORM)
+            nn.utils.clip_grad_norm_(placement_params, max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()
         
-        # compute accuracy
+        # compute TODO precision/recall
         predictions = predict_placements(logits, levels, audio_lengths)
         total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
 
@@ -280,24 +280,67 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
     breakpoint()
 
     step_sequence = batch['step_sequence']
+    batch_size = step_sequence.size(0)
 
     # lengths of each step sequence; should equal lengths of clstm_hiddens sublists
     sequence_lengths = batch['sequence_lengths']
     num_frames = max(sequence_lengths)
 
+    # note these are unrolling chart frams, vs. audio frames as in placement training
     num_unrollings = (num_frames // SELECTION_UNROLLING_LEN) + 1
     last_unroll_len = (num_frames % SELECTION_UNROLLING_LEN)
 
+    # store lengths for each step sequence, as in placement
+    # [# full frames, last frame]
+    sequence_unroll_lengths = [(sequence_lengths[b] // SELECTION_UNROLLING_LEN, 
+                               sequence_lengths[b] % SELECTION_UNROLLING_LEN) 
+                               for b in range(batch_size)]
     total_loss = 0
     total_accuracy = 0
+
+    # can use all zeros as start token, since we exclude all empty steps
+    start_token = torch.zeros(step_sequence.size(2), device=device)
+    hidden, cell = rnn.initStates(batch_size, device)
 
     for unrolling in range(num_unrollings):
         start_frame = unrolling * SELECTION_UNROLLING_LEN
         if unrolling == num_unrollings - 1:
             end_frame = start_frame + last_unroll_len
         else:
-            audio_end_frame = start_frame + SELECTION_UNROLLING_LEN
+            end_frame = start_frame + SELECTION_UNROLLING_LEN
         unroll_length = end_frame - start_frame
+
+        # determine which sequences are padded, and the lengths of each example
+        sequence_lengths = []
+        for b in range(batch_size):
+            padded = unrolling > sequence_unroll_lengths[b][0]
+            if padded:
+                sequence_lengths.append(sequence_unroll_lengths[b][1])
+            else:
+                sequence_lengths.append(unroll_length)
+
+            
+        # [batch, unroll_length, # step features]
+        step_inputs = step_sequence[:, start_frame:end_frame, :]
+        curr_clstm_hiddens = clstm_hiddens[start_frame:end_frame]
+        
+        # [batch, ]
+        logits, hidden, cell = rnn(step_inputs, curr_clstm_hiddens, hidden, cell)
+
+        # get targets, compute loss
+
+        loss = 0
+        for step in range(unroll_length):
+            loss += criterion(logits[:, step, :], targets[:, step])
+
+        if do_train:
+            loss.backward()
+            
+            nn.utils.clip_grad_norm_(placement_params, max_norm=MAX_GRAD_NORM)
+            optimizer.step()
+            optimizer.zero_grad()
+
+        total_loss += loss.item()
 
     return total_loss / num_frames, total_accuracy / num_frames
 

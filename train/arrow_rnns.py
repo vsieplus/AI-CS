@@ -142,10 +142,12 @@ class SelectionRNN(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     # step_input: [batch, unroll_length, input_size]
-    # clstm_hidden, hidden, cell: [num_lstm_layers, batch, hidden_size]
+    # clstm_hidden: [batch, hidden_size]
+    # hidden, cell: [num_lstm_layers, batch, hidden_size]
     def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
-        # [batch, hidden] hidden_input at time t = a * h_{t-1} + b * h_t', a is hidden_weight
-        weighted_hidden = self.hidden_weight * hidden + self.placement_weight * clstm_hidden
+        # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
+        weighted_hidden = self.hidden_weight * hidden + self.placement_weight *
+            clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1)
 
         lstm_input_packed = pack_padded_sequence(step_input, input_lengths, batch_first=True, enforce_sorted=False)
 
@@ -158,13 +160,11 @@ class SelectionRNN(nn.Module):
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
 
-        # [batch, hidden] (use hidden states from last timestep as input to linear layer)
-        linear_input = lstm_out[:, -1]
-
-        # [batch, input_size] - return logits directly
+        # [batch, unroll, output_size] - return logits directly
+        linear_out = self.dropout(self.relu(self.linear(linear_input)))
         linear_out = self.dropout(self.relu(self.linear(linear_input)))
 
-        return linear_out
+        return linear_out, (hn.detach(), cn.detach())
 
     def initStates(self, batch_size, device):
         return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
