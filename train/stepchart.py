@@ -22,7 +22,8 @@ CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
 memory = Memory(CACHE_DIR, verbose=0, compress=True)
 # to reset cache: memory.clear(warn=False)
 
-# add caching to extract_audio_feats
+# add caching to extract_audio_feats functions
+load_audio = memory.cache(load_audio)
 extract_audio_feats = memory.cache(extract_audio_feats)
 
 # returns splits of the given (torch) dataset; assumes 3 way split
@@ -80,7 +81,7 @@ def collate_charts(batch):
 			'step_frames': step_frames,
 			'step_sequence': step_sequence,
 			'sequence_lengths': sequence_lengths,
-			'sample_rate': batch[0].sample_rate}
+			'sample_rate': batch[0].song.sample_rate}
 
 # TODO write sampler which groups examples by sample rate (enforce required match=TRUE)
 
