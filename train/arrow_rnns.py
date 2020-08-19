@@ -124,7 +124,7 @@ class PlacementRNN(nn.Module):
 # *in addition* to the previous steps in the chart it has seen via the rnn hidden state
 
 class SelectionRNN(nn.Module):
-    def __init__(self, num_lstm_layers, input_size, hidden_size, hidden_weight, dropout = 0.5):
+    def __init__(self, num_lstm_layers, input_size, output_size, hidden_size, hidden_weight, dropout = 0.5):
         super().__init__()
         
         self.num_lstm_layers = num_lstm_layers
@@ -137,7 +137,7 @@ class SelectionRNN(nn.Module):
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
             num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
-        self.linear = nn.Linear(in_features=hidden_size, out_features=input_size)
+        self.linear = nn.Linear(in_features=hidden_size, out_features=output_size)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
