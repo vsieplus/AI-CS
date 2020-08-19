@@ -95,8 +95,8 @@ class PlacementRNN(nn.Module):
 
         # [batch, unroll_length, hidden] -> [batch, unroll, 128] -> [batch, unroll, 2] 
         # use last layer hidden states as input; 2 fully-connected relu layers w/dropout
-        linear_input = self.dropout(self.relu(self.linear1(lstm_out)))
-        logits = self.dropout(self.relu(self.linear2(linear_input)))
+        linear1_out = self.dropout(self.relu(self.linear1(lstm_out)))
+        logits = self.dropout(self.relu(self.linear2(linear1_out)))
 
         # return logits directly, along hidden state for each frame
         # [batch, unroll_length, 2] / [batch, unroll, hidden] / ([batch, hidden] x 2)
@@ -137,7 +137,8 @@ class SelectionRNN(nn.Module):
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
             num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
-        self.linear = nn.Linear(in_features=hidden_size, out_features=output_size)
+        self.linear1 = nn.Linear(in_features=hidden_size, out_features=output_size)
+        self.linear2 = nn.Linear(in_features=hidden_size, out_features=output_size)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
@@ -161,10 +162,10 @@ class SelectionRNN(nn.Module):
         lstm_out = self.dropout(lstm_out)
 
         # [batch, unroll, output_size] - return logits directly
-        linear_out = self.dropout(self.relu(self.linear(linear_input)))
-        linear_out = self.dropout(self.relu(self.linear(linear_input)))
+        linear1_out = self.dropout(self.relu(self.linear1(lstm_out)))
+        logits = self.dropout(self.relu(self.linear2(linear1_out)))
 
-        return linear_out, (hn.detach(), cn.detach())
+        return logits, (hn.detach(), cn.detach())
 
     def initStates(self, batch_size, device):
         return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
