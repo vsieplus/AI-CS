@@ -4,15 +4,17 @@
 import argparse
 import os
 import shutil
+from collections import OrderedDict
 from pathlib import Path
 
-from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from hyper import *
 from arrow_rnns import PlacementCNN, PlacementRNN, SelectionRNN
@@ -107,8 +109,6 @@ def predict_placements(logits, levels, lengths):
 def get_placement_accuracy(predictions, targets, lengths):
     """get placement accuracy between given predictions/targets"""
 
-    # TODO add precision/recall
-
     correct = 0
     total_preds = 0
     for b in range(predictions.size(0)):
@@ -118,7 +118,7 @@ def get_placement_accuracy(predictions, targets, lengths):
             pred_bs = predictions[b, s].item()
             frame_match = (targets[b, s] == pred_bs).item()
             
-            # count a placements as positives if within +/- 20 ms (+/- 1 frame)
+            # count placements as positives if within +/- 20 ms (+/- 1 frame)
             # (assume no placements at the ends)
             if s == 0:
                 shift_match = (targets[b, s + 1] == pred_bs).item()
@@ -147,7 +147,8 @@ def get_step_placement_frames(chart_placements, step_frames, batch_size):
 
     return step_placement_frames, first_frame, last_frame
 
-def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch, device, do_train):
+def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch, 
+                        device, writer, do_train, curr_train_epoch=0):
     """train or eval the placement models with the specified parameters on the given batch"""
     if do_train:
         cnn.train()
@@ -174,7 +175,8 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
     step_frames = batch['step_frames']              # which audio frames recorded in chart data
 
     # get audio frame numbers of step placements
-    step_placement_frames, first_frame, last_frame = get_step_placement_frames(chart_placements, step_frames, batch_size)
+    step_placement_frames, first_frame, last_frame = get_step_placement_frames(chart_placements, 
+        step_frames, batch_size)
 
     # final_shape -> [batch, # of nonempty chart frames, hidden]
     clstm_hiddens = [[] for _ in range(batch_size)]
@@ -193,6 +195,9 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
 
     total_loss = 0
     total_accuracy = 0
+
+    # for pr curve
+    all_targets, all_scores = [], []
 
     # loop through all unrollings
     for unrolling in range(num_unrollings):
@@ -248,6 +253,11 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
             # only clstm hiddens for chart frames with non-empty step placements
             clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_audio_placements])
 
+            if do_train:
+                all_targets.append(targets[b, :audio_lengths[b]])
+                b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
+                all_scores.append(b_dists[:, 1])
+
         # compute total loss for this unrolling
         loss = 0
         for step in range(unroll_length):
@@ -261,13 +271,21 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
             optimizer.step()
             optimizer.zero_grad()
         
-        # compute TODO precision/recall
         predictions = predict_placements(logits, levels, audio_lengths)
         total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
 
         total_loss += loss.item()
 
     clstm_hiddens = [torch.cat(hiddens_seq, dim=0) for hiddens_seq in clstm_hiddens]
+
+    if do_train:
+        targets = torch.cat(all_targets, dim=0)
+        scores = torch.cat(all_scores, dim=0)
+
+        all_targets.clear()
+        all_scores.clear()
+
+        writer.add_pr_curve('placement_pr_curve', targets, scores, curr_train_epoch)
 
     return total_loss / num_audio_frames, total_accuracy / num_audio_frames, clstm_hiddens
 
@@ -327,7 +345,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
         # [batch, ]
         logits, hidden, cell = rnn(step_inputs, curr_clstm_hiddens, hidden, cell)
 
-        # get targets, compute loss
+        # convert -> indices/get targets, compute loss
 
         loss = 0
         for step in range(unroll_length):
@@ -344,16 +362,17 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
     return total_loss / num_frames, total_accuracy / num_frames
 
-def evaluate(p_cnn, p_rnn, p_params, s_rnn, valid_iter, p_criterion, s_criterion, device):
+def evaluate(p_cnn, p_rnn, p_params, s_rnn, data_iter, p_criterion, s_criterion,
+             device, writer, curr_validation):
     total_p_loss = 0
     total_s_loss = 0
     total_p_acc = 0
     total_s_acc = 0
 
     with torch.no_grad():
-       for batch in valid_iter:
+       for i, batch in enumerate(data_iter):
             p_loss, p_acc, hiddens = run_placement_batch(p_cnn, p_rnn, p_params, None,
-                p_criterion, batch, device, do_train=False)
+                p_criterion, batch, device, writer, do_train=False)
 
             total_p_loss += p_loss
             total_p_acc += p_acc
@@ -364,11 +383,18 @@ def evaluate(p_cnn, p_rnn, p_params, s_rnn, valid_iter, p_criterion, s_criterion
             total_s_loss += s_loss
             total_s_acc += s_acc
 
-    return (total_p_loss / len(valid_iter), total_p_acc / len(valid_iter),
-            total_s_loss / len(valid_iter), total_s_acc / len(valid_iter))
+            if curr_validation >= 0:
+                step = curr_validation * len(data_iter) + i
+                writer.add_scalar('placement_valid_loss', p_loss, step)
+                writer.add_scalar('placement_valid_accuracy', p_acc, step)
+                writer.add_scalar('selection_valid_loss', s_loss, step)
+                writer.add_scalar('selection_valid_accuracy', s_acc, step)
+
+    return (total_p_loss / len(data_iter), total_p_acc / len(data_iter),
+            total_s_loss / len(data_iter), total_s_acc / len(data_iter))
 
 # full training process from placement -> selection
-def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
+def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
                restart, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=2):
     cpu_device = torch.device('cpu')
 
@@ -391,6 +417,8 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
         best_selection_valid_loss = float('inf')
         start_epoch = 0
 
+    writer = SummaryWriter()
+
     print('Starting training..')
     for epoch in tqdm(range(num_epochs)):
         if epoch < start_epoch:
@@ -402,14 +430,21 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
         # if device is gpu: report_memory()
 
         for i, batch in enumerate(train_iter):
-            placement_loss, _, clstm_hiddens = run_placement_batch(placement_cnn, placement_rnn,
-                placement_params, placement_optim, PLACEMENT_CRITERION, batch, device, do_train=True)
+            placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_cnn, 
+                placement_rnn, placement_params, placement_optim, PLACEMENT_CRITERION,
+                batch, device, writer, do_train=True, curr_train_epoch=epoch)
 
-            selection_loss, _ = run_selection_batch(selection_rnn, selection_optim,
+            selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
                 SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=True)
 
             epoch_p_loss += placement_loss
             epoch_s_loss += selection_loss
+
+            step = epoch * len(train_iter) + i
+            writer.add_scalar('placement_train_loss', placement_loss, step)
+            writer.add_scalar('placement_train_accuracy', placement_acc, step)
+            writer.add_scalar('selection_train_loss', selection_loss, step)
+            writer.add_scalar('selection_train_accuracy', selection_acc, step)
         
         epoch_p_loss /= len(train_iter)
         epoch_s_loss /= len(train_iter)
@@ -420,19 +455,45 @@ def run_models(train_iter, valid_iter, num_epochs, dataset_type, device, save_di
             print(f'\tAvg. selection loss per timestep: {epoch_s_loss:.3f}')
 
         if epoch % validate_every_x_epoch == 0:
-            p_v_loss, p_v_acc, s_v_loss, s_v_acc = evaluate(placement_cnn, placement_rnn, placement_params,
-                selection_rnn, valid_iter, PLACEMENT_CRITERION, SELECTION_CRITERION, device)
+            p_v_loss, p_v_acc, s_v_loss, s_v_acc = evaluate(placement_cnn, placement_rnn, 
+                placement_params, selection_rnn, valid_iter, PLACEMENT_CRITERION, 
+                SELECTION_CRITERION, device, writer, epoch / validate_every_x_epoch)
 
-        # track best performing model(s)
-        if early_stopping:
-            if p_v_loss < best_placement_valid_loss:
-                best_placement_valid_loss = p_v_loss
-                save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
-                    epoch, best_placement_valid_loss, best_selection_valid_loss,
-                    save_dir, best=True)
-            else:
-                print("Validation loss increased. Stopping early..")
-                return
+            # track best performing model(s)
+            if early_stopping:
+                if p_v_loss < best_placement_valid_loss:
+                    best_placement_valid_loss = p_v_loss
+                    save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
+                        epoch, best_placement_valid_loss, best_selection_valid_loss,
+                        save_dir, best=True)
+                else:
+                    print("Validation loss increased. Stopping early..")
+                    writer.close()
+                    breakpoint
+        
+        if epoch == num_epochs - 1:
+            save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
+                epoch, best_placement_valid_loss, best_selection_valid_loss,
+                save_dir)
+    
+    writer.close()
+
+    # evaluate on test set
+    p_t_loss, p_t_acc, s_t_loss, s_t_acc = evaluate(placement_cnn, placement_rnn, placement_params,
+        selection_rnn, test_iter, PLACEMENT_CRITERION, SELECTION_CRITERION, device, writer, -1)
+
+    # save training summary stats to json file
+    summary_json = OrderedDict([
+        ('epochs_trained', num_epochs),
+        ('train_examples': len(train_iter.dataset)),
+        ('valid_examples': len(valid_iter.dataset)),
+        ('test_examples': len(test_iter.dataset)),
+        ('placement_test_loss', p_t_loss),
+        ('placement_test_accuracy', p_t_loss),
+        ('selection_test_loss', s_t_loss),
+        ('selection_test_accuracy', s_t_acc)
+    ])
+    with open(os.path.join(save_dir, 'summary.json'))
 
 def main():
     args = parse_args()
@@ -450,11 +511,12 @@ def main():
     valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, collate_fn=collate_charts)
     test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, collate_fn=collate_charts)
 
-    print(f"""Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
-        Valid: {len(valid_data)}, Test: {len(test_data)}""")
+    datasets_size_str = f"""Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
+                            Valid: {len(valid_data)}, Test: {len(test_data)}""")
+    print(datasets_size_str)
 
-    run_models(train_iter, valid_iter, NUM_EPOCHS, dataset_type, device, args.save_dir, 
-        args.load_checkpoint, args.restart)
+    run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, dataset_type, device, 
+               args.save_dir, args.load_checkpoint, args.restart)
 
 if __name__ == '__main__':
     main()
