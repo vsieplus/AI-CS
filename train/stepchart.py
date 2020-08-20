@@ -97,7 +97,7 @@ def collate_charts(batch):
 	# and set target to '1' at corresponding melframe
 	placement_targets = []
 	for b in range(batch_size):
-		targets = torch.zeros(audio_lengths[b])
+		targets = torch.zeros(audio_lengths[b], dtype=torch.long)
 
 		sample_rate = batch[b].song.sample_rate
 		mel_placement_frames = [convert_chartframe_to_melframe(f, sample_rate) 
@@ -382,7 +382,7 @@ def step_sequence_to_targets(step_sequence):
 		out: targets - shape [seq_length], values in range [0, vocab size - 1] U [pad_idx]
 	"""
 	num_arrows = step_sequence.size(1) // NUM_ARROW_STATES
-	targets = torch.zeros(step_sequence.size(0))
+	targets = torch.zeros(step_sequence.size(0), dtype=torch.long)
 
 	for s in range(step_sequence.size(0)):
 		idx = 0

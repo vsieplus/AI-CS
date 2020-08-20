@@ -137,31 +137,34 @@ class SelectionRNN(nn.Module):
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
             num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
-        self.linear1 = nn.Linear(in_features=hidden_size, out_features=output_size)
+        self.linear1 = nn.Linear(in_features=hidden_size, out_features=hidden_size)
         self.linear2 = nn.Linear(in_features=hidden_size, out_features=output_size)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
-    # step_input: [batch, unroll_length, input_size]
+    # step_input: [batch, 1, input_size]
     # clstm_hidden: [batch, hidden_size]
     # hidden, cell: [num_lstm_layers, batch, hidden_size]
     def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
         # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
-        weighted_hidden = self.hidden_weight * hidden + (self.placement_weight *
-            clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1))
+        if clstm_hidden is not None:
+            weighted_hidden = self.hidden_weight * hidden + (self.placement_weight *
+                clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1))
+        else:
+            weighted_hidden = hidden
 
         lstm_input_packed = pack_padded_sequence(step_input, input_lengths, batch_first=True, enforce_sorted=False)
 
-        # [batch, unroll_length, hidden] (lstm_out: hidden states from last layer)
+        # [batch, 1, hidden] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
-        lstm_out_packed, (hn, cn) = self.lstm(step_input, (weighted_hidden, cell))
+        lstm_out_packed, (hn, cn) = self.lstm(lstm_input_packed, (weighted_hidden, cell))
 
         lstm_out, _ = pad_packed_sequence(lstm_out_packed, batch_first=True)
 
         # manual dropout to last lstm layer output
         lstm_out = self.dropout(lstm_out)
 
-        # [batch, unroll, output_size] - return logits directly
+        # [batch, 1, hidden -> hidden -> vocab (output) size]
         linear1_out = self.dropout(self.relu(self.linear1(lstm_out)))
         logits = self.dropout(self.relu(self.linear2(linear1_out)))
 
