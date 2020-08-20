@@ -2,6 +2,7 @@
 # (models defined in arrow_rnns.py)
 
 import argparse
+import json
 import os
 import shutil
 from collections import OrderedDict
@@ -27,13 +28,13 @@ MODELS_DIR = os.path.join(ABS_PATH, 'models')
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset under data/datasets/subsets/')
+    parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset under ../data/datasets/subsets/')
     parser.add_argument('--dataset_path', type=str, default=None, help='Alternatively, provide direct path to dataset json file')
-    parser.add_argument('--save_dir', type=str, default=None, help="""Specify custom output directory to save
-        models to. If blank, will save in models/dataset_name/""")
+    parser.add_argument('--save_dir', type=str, default=None, 
+                        help="""Specify custom output directory to save models to. If blank, will save in models/dataset_name/""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
-    parser.add_argument('--restart', action='store_true', default=False,
-        help='Use this option to start training from beginning with a checkpoint; Else resume training from when stopped')
+    parser.add_argument('--restart', action='store_true', default=False, 
+                        help='Use this option to start training from beginning with a checkpoint; Else resume training from when stopped')
 
     args = parser.parse_args()
 
@@ -132,21 +133,6 @@ def get_placement_accuracy(predictions, targets, lengths):
 
     return correct / total_preds
 
-def get_step_placement_frames(chart_placements, step_frames, batch_size):
-    # the indices of step_frames which had step placements
-    step_placement_indices = [(chart_placements[b] == 1).nonzero(as_tuple=False).squeeze().tolist()
-                              for b in range(batch_size)]
-
-    # the subset of step_frames (audio frames) that had placements
-    step_placement_frames = torch.tensor([[step_frames[b][idx] for idx in step_placement_indices[b]]
-                                          for b in range(batch_size)])
-                                           
-    # compute the first and last audio frames coinciding with chart non-emtpy step placements
-    first_frame = min(step_frames[b][indices[0]] for b, indices in enumerate(step_placement_indices))
-    last_frame = max(step_frames[b][indices[-1]] for b, indices in enumerate(step_placement_indices))
-
-    return step_placement_frames, first_frame, last_frame
-
 def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length):
     """compute relevant batch metavalues for padding/lengths"""
     sequence_lengths = []
@@ -171,21 +157,12 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
     num_audio_frames = audio_feats.size(2)
     batch_size = audio_feats.size(0)
 
-    sample_rate = batch['sample_rate']
-
     # [batch, # chart features]
     chart_feats = batch['chart_feats'].to(device)
-    levels = []
-    for b in range(batch_size):
-        levels.append((chart_feats[b, 2:] == 1).nonzero(as_tuple=False).flatten().item() + 1)
+    levels = batch['chart_levels'].to(device)
 
-    # both are [batch, max # of chart frames] (padded/not padded)
-    chart_placements = batch['placement_targets']   # if chart frame had a hit or not
-    step_frames = batch['step_frames']              # which audio frames recorded in chart data
-
-    # get audio frame numbers of step placements
-    step_placement_frames, first_frame, last_frame = get_step_placement_frames(chart_placements, 
-        step_frames, batch_size)
+    # [batch, max (audio) sequence length] (padded)
+    placement_targets = batch['placement_targets']
 
     # final_shape -> [batch, # of nonempty chart frames, hidden]
     clstm_hiddens = [[] for _ in range(batch_size)]
@@ -198,15 +175,17 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
     # get representation of audio lengths for each unrolling
     # [full frames, last frame length]
     # (e.g. [100, 100, 100, 64] -> (3,64))
-    audio_unroll_lengths = [(batch['audio_lengths'][b] // PLACEMENT_UNROLLING_LEN, 
-                             batch['audio_lengths'][b] % PLACEMENT_UNROLLING_LEN) 
-                            for b in range(batch_size)]
+    audio_unroll_lengths = [(batch['audio_lengths'][b] // PLACEMENT_UNROLLING_LEN,
+                             batch['audio_lengths'][b] % PLACEMENT_UNROLLING_LEN) for b in range(batch_size)]
 
     total_loss = 0
     total_accuracy = 0
 
     # for pr curve
     all_targets, all_scores = [], []
+
+    first_frame = batch['first_step_frame']
+    last_frame = batch['last_step_frame']
 
     # loop through all unrollings
     for unrolling in range(num_unrollings):
@@ -220,12 +199,6 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
         # skip audio frames outside chart range
         if (audio_end_frame < first_frame or audio_start_frame > last_frame + 1 or unroll_length == 0):
             continue
-        
-        # convert audio frame #s [from mel spectrogram representation] -> chart frame #s (10ms)
-        # MEL_FRAME = round((SAMPLE_RATE * TIME [secs]) / HOP_LENGTH [mel])
-        # -> secs = (hop * melframe) / sr
-        chart_start_frame = round(audio_start_frame * HOP_LENGTH / sample_rate * CHART_FRAME_RATE)
-        chart_end_frame = round(audio_end_frame * HOP_LENGTH / sample_rate * CHART_FRAME_RATE)
 
         audio_lengths = get_sequence_lengths(unrolling, audio_unroll_lengths, unroll_length)
 
@@ -236,34 +209,13 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
         # [batch, unroll_len, 2] / [batch, unroll_len, hidden] / ([batch, hidden] x 2)
         logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states, audio_lengths)
 
-        # for each batch example, if this audio frame also in the chart, use actual target at that frame
-        # otherwise use default zero value for no placement at all
-        targets = torch.zeros(batch_size, unroll_length, dtype=torch.long, device=device)
+        # [batch, unroll_len]
+        targets = placement_targets[:, start_frame:end_frame]
+
         for b in range(batch_size):
-            # which frames to consider for the current unrolling
-            curr_unroll_chart_frames = torch.logical_and(step_placement_frames[b] >= chart_start_frame,
-                                                         step_placement_frames[b] < chart_end_frame, device=device)
-
-            # which of them had placements?
-            curr_unroll_chart_placements = step_placement_frames[b][curr_unroll_chart_frames]
-
-            # convert to respective audio frames, + normalize to [0, unroll_length-1]
-            curr_unroll_audio_placements = (curr_unroll_chart_placements.float() / CHART_FRAME_RATE 
-                * sample_rate / HOP_LENGTH).int().long() - audio_start_frame
-
-            targets[b, curr_unroll_audio_placements] = 1
-
-            # for padded seqs, set targets to the ignore_index val.
-            targets[b, audio_lengths[b]:] = PAD_IDX
-
             # only clstm hiddens for chart frames with non-empty step placements
             clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_audio_placements])
-
-            if do_train:
-                all_targets.append(targets[b, :audio_lengths[b]])
-                b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
-                all_scores.append(b_dists[:, 1])
-
+        
         # compute total loss for this unrolling
         loss = 0
         for step in range(unroll_length):
@@ -276,6 +228,10 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
             nn.utils.clip_grad_norm_(placement_params, max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()
+
+            #all_targets.append(targets[b, :audio_lengths[b]])
+            #b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
+            #all_scores.append(b_dists[:, 1])
         
         predictions = predict_placements(logits, levels, audio_lengths)
         total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
@@ -295,31 +251,6 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
 
     return total_loss / num_audio_frames, total_accuracy / num_audio_frames, clstm_hiddens
 
-def step_inputs_to_idx(step_inputs, sequence_lengths, device):
-    """given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
-           in: step_inputs - shape [batch, seq_length, chart_features]
-           out: indices - shape [batch, seq_length], values in range [0, vocab size - 1] U [pad_idx]
-    """
-    targets = torch.zeros(step_inputs.size(0), step_inputs.size(0), device=device)
-
-    for b in range(step_inputs.size(0)):
-        for s in range(sequence_lengths[b]):
-            idx = 0
-
-            # step_index = SUM(i=0->?)[step[i] * (4^i)] (Base 4 L->R); ? = total arrows
-            for i in range(step_inputs.size(2) / NUM_ARROW_STATES):
-                start = (i * NUM_ARROW_STATES)
-                curr_idx = (step_inputs[b, s, start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
-
-                idx += curr_idx * (NUM_ARROW_STATES ** i)
-
-            targets[b, s] = idx
-
-        # ignore padded indices when computing loss
-        targets[b, sequence_lengths[b]:] = PAD_IDX
-
-    return targets
-
 def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens, do_train):
     if do_train:
         rnn.train()
@@ -328,23 +259,23 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
     breakpoint()
 
-    # [batch, (max batch) sequence length, chart features]
-    step_sequence = batch['step_sequence']
+    # [batch, (max batch) sequence length, chart features] / [batch, (max) seq length]
+    step_sequence = batch['step_sequence'].to(device)
+    step_targets = batch['step_targets'].to(device)
     batch_size = step_sequence.size(0)
 
     # lengths of each step sequence; should equal lengths of clstm_hiddens sublists
-    sequence_lengths = batch['sequence_lengths']
-    num_frames = max(sequence_lengths)
+    step_sequence_lengths = batch['step_sequence_lengths']
+    num_frames = max(step_sequence_lengths)
 
     # note these are unrolling chart frams, vs. audio frames as in placement training
     num_unrollings = (num_frames // SELECTION_UNROLLING_LEN) + 1
     last_unroll_len = (num_frames % SELECTION_UNROLLING_LEN)
 
-    # store lengths for each step sequence, as in placement
-    # [# full frames, last frame]
-    sequence_unroll_lengths = [(sequence_lengths[b] // SELECTION_UNROLLING_LEN,
-                               sequence_lengths[b] % SELECTION_UNROLLING_LEN) 
-                               for b in range(batch_size)]
+    # same as in placement
+    seq_unroll_lengths = [(step_sequence_lengths[b] // SELECTION_UNROLLING_LEN,
+                           step_sequence_lengths[b] % SELECTION_UNROLLING_LEN) for b in range(batch_size)]
+
     total_loss = 0
     total_accuracy = 0
 
@@ -353,31 +284,37 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
     hidden, cell = rnn.initStates(batch_size, device)
 
     logits, hidden, cell = rnn(start_token, hidden, hidden, cell)
-    loss = criterion(logits[:, 0, :], step_inputs_to_idx(step_sequence[:, 0:1, :], [1] * logits.size(0), device))
+    loss = criterion(logits[:, 0], targets[:, 0:1])
 
     for unrolling in range(num_unrollings):
         start_frame = unrolling * SELECTION_UNROLLING_LEN
         if unrolling == num_unrollings - 1:
             end_frame = start_frame + last_unroll_len
+            last_unrolling = False
         else:
             end_frame = start_frame + SELECTION_UNROLLING_LEN
+            last_unrolling = True
         unroll_length = end_frame - start_frame
-
-        # determine which sequences are padded, and the lengths of each example
-        sequence_lengths = get_sequence_lengths(unrolling, sequence_unroll_lengths, unroll_length)
 
         # [batch, unroll_length, # step features]
         step_inputs = step_sequence[:, start_frame:end_frame, :]
         curr_clstm_hiddens = clstm_hiddens[start_frame:end_frame]
         
+        curr_seq_lengths = get_sequence_lengths(unrolling, seq_unroll_lengths, unroll_length)
+
         # [batch, unroll, vocab_size] / [batch, hidden] x 2
-        logits, hidden, cell = rnn(step_inputs, curr_clstm_hiddens, hidden, cell)
+        logits, hidden, cell = rnn(step_inputs, curr_clstm_hiddens, hidden, cell, curr_seq_lengths)
 
         # get targets for next timestep, compute loss; [batch, unroll]
-        targets = step_inputs_to_idx(step_inputs, sequence_lengths, device)
+        last_target = end_frame + 1
+        targets = step_targets[:, start_frame + 1:end_frame + 1]
 
         loss = 0
         for step in range(unroll_length):
+            # skip final step
+            if last_unrolling and step == unroll_length - 1:
+                continue
+
             loss += criterion(logits[:, step, :], targets[:, step])
 
         if do_train:
@@ -447,7 +384,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         best_selection_valid_loss = float('inf')
         start_epoch = 0
 
-    writer = SummaryWriter()
+    writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs'))
 
     print('Starting training..')
     for epoch in tqdm(range(num_epochs)):
@@ -480,7 +417,6 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_s_loss /= len(train_iter)
 
         if epoch % print_every_x_epoch == 0:
-            print(f'\Epoch {epoch}')
             print(f'\tAvg. batch placement loss per timestep: {epoch_p_loss:.3f}')
             print(f'\tAvg. batch selection loss per timestep: {epoch_s_loss:.3f}')
 
@@ -515,15 +451,17 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     # save training summary stats to json file
     summary_json = OrderedDict([
         ('epochs_trained', num_epochs),
-        ('train_examples': len(train_iter.dataset)),
-        ('valid_examples': len(valid_iter.dataset)),
-        ('test_examples': len(test_iter.dataset)),
+        ('train_examples', len(train_iter.dataset)),
+        ('valid_examples', len(valid_iter.dataset)),
+        ('test_examples', len(test_iter.dataset)),
         ('placement_test_loss', p_t_loss),
         ('placement_test_accuracy', p_t_loss),
         ('selection_test_loss', s_t_loss),
         ('selection_test_accuracy', s_t_acc)
     ])
-    with open(os.path.join(save_dir, 'summary.json'))
+
+    with open(os.path.join(save_dir, 'summary.json')) as f:
+        f.write(json.dumps(summary_json))
 
 def main():
     args = parse_args()
@@ -537,12 +475,12 @@ def main():
     dataset_type = dataset.chart_type
 
     train_data, valid_data, test_data = get_splits(dataset)
-    train_iter = DataLoader(train_data, batch_size=BATCH_SIZE, collate_fn=collate_charts)
-    valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, collate_fn=collate_charts)
-    test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, collate_fn=collate_charts)
+    train_iter = DataLoader(train_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
+    valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
+    test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
 
     datasets_size_str = f"""Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
-                            Valid: {len(valid_data)}, Test: {len(test_data)}""")
+                            Valid: {len(valid_data)}, Test: {len(test_data)}"""
     print(datasets_size_str)
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, dataset_type, device, 

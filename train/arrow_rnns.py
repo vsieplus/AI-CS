@@ -147,8 +147,8 @@ class SelectionRNN(nn.Module):
     # hidden, cell: [num_lstm_layers, batch, hidden_size]
     def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
         # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
-        weighted_hidden = self.hidden_weight * hidden + self.placement_weight *
-            clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1)
+        weighted_hidden = self.hidden_weight * hidden + (self.placement_weight *
+            clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1))
 
         lstm_input_packed = pack_padded_sequence(step_input, input_lengths, batch_first=True, enforce_sorted=False)
 
