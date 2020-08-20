@@ -10,7 +10,7 @@ N_CHART_TYPES = 2
 N_LEVELS = 28
 CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
 
-BATCH_SIZE = 1
+BATCH_SIZE = 4
 HIDDEN_SIZE = 128
 NUM_EPOCHS = 25
 MAX_GRAD_NORM = 5
@@ -19,7 +19,7 @@ HOP_LENGTH = 512
 
 # actually bce loss, but use crossentropy for ignore_index functionality
 PLACEMENT_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-PLACEMENT_LR = 0.0001
+PLACEMENT_LR = 0.005
 
 PLACEMENT_AUDIO_PAD = 7  # how many frames of audio context to use during placement training
 PLACEMENT_CHANNELS = [3, 10]
@@ -41,7 +41,7 @@ PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-SELECTION_LR = 0.0001
+SELECTION_LR = 0.001
 
 SELECTION_HIDDEN_WEIGHT = 0.7
 NUM_SELECTION_LSTM_LAYERS = 2

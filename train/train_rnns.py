@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--save_dir', type=str, default=None, 
                         help="""Specify custom output directory to save models to. If blank, will save in models/dataset_name/""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
-    parser.add_argument('--restart', action='store_true', default=False, 
+    parser.add_argument('--retrain', action='store_true', default=False, 
                         help='Use this option to start training from beginning with a checkpoint; Else resume training from when stopped')
 
     args = parser.parse_args()
@@ -69,13 +69,13 @@ def save_checkpoint(p_cnn, p_rnn, s_rnn, epoch, best_p_vloss, best_s_vloss, save
     if best:
         shutil.copy(out_path, os.path.join(save_dir, 'model_best.tar'))
 
-def load_save(path):
+def load_save(path, retrain):
     print(f'Loading checkpoint from {path}...')
     checkpoint = torch.load(path)
 
-    # only restore epoch/best loss values when not restarting    
-    # (i.e. give option to restart training on a pretrained-model)       
-    if not restart:
+    # only restore epoch/best loss values when not retraining    
+    # (i.e. give option to retrain training on a pretrained-model)       
+    if not retrain:
         start_epoch = checkpoint['epoch']
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
         best_selection_valid_loss = checkpoint['best_selection_valid_loss']
@@ -130,6 +130,22 @@ def get_placement_accuracy(predictions, targets, lengths):
 
             correct += frame_match or shift_match
 
+    return correct / total_preds
+
+def get_selection_accuracy(logits, targets, seq_lengths, step):
+    # [batch, vocab_size]
+    dist = F.softmax(logits, dim=-1)
+    
+    # [batch]
+    preds = torch.topk(dist, k=1, dim=-1)[1]
+
+    correct, total_preds = 0, 0
+    for b, seq_length in enumerate(seq_lengths):
+        if seq_length > step:
+            total_preds += 1
+
+            correct += (preds[b] == targets[b]).item()
+    
     return correct / total_preds
 
 def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length):
@@ -205,7 +221,7 @@ def run_placement_batch(cnn, rnn, optimizer, criterion, batch,
         cnn_input = audio_feats[:, :, audio_start_frame:audio_end_frame]
         cnn_output = cnn(cnn_input)
 
-        # [batch, unroll_len, 2] / [batch, unroll_len, hidden] / ([batch, hidden] x 2)
+        # [batch, unroll_len, 2] / [batch, unroll_len, hidden] / ([num_lstm_layers, batch, hidden] x 2)
         logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states, audio_lengths)
 
         # [batch, unroll_len]
@@ -257,13 +273,17 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
         rnn.train()
     else:
         rnn.eval()
+
+    # pad clstm_hiddens across batch examples
+    # [batch, [step_sequence_length(variable), hidden]] -> [batch, max_step_sequence_length, hidden]
+    clstm_hiddens = pad_sequence(clstm_hiddens, batch_first=True, padding_value=0)
         
     # [batch, (max batch) sequence length, chart features] / [batch, (max) seq length]
     step_sequence = batch['step_sequence'].to(device)
     step_targets = batch['step_targets'].to(device)
     batch_size = step_sequence.size(0)
 
-    # lengths of each step sequence; should equal size of clstm_hiddens tensors
+    # lengths of each step sequence; should equal true size of original clstm_hiddens tensors
     step_sequence_lengths = batch['step_sequence_lengths']
     num_frames = max(step_sequence_lengths)
 
@@ -316,16 +336,15 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
                 
             # [batch, 1, # step features] / [batch, hiddens] - feed clstm hiddens 1 by 1
             step_inputs = step_sequence[:, start_frame + step, :].unsqueeze(1)
-            curr_clstm_hiddens = clstm_hiddens[0][start_frame + step].unsqueeze(0)
-
-            # TODO Batching            
+            curr_clstm_hiddens = clstm_hiddens[:, start_frame + step]
             
-            # [batch, 1, vocab_size] / [batch, hidden] x 2
+            # [batch, 1, vocab_size] / [num_lstm_layers, batch, hidden] x 2
             logits, (hidden, cell) = rnn(step_inputs, curr_clstm_hiddens, hidden, cell, [1] * batch_size)
 
             loss += criterion(logits[:, 0], step_targets[:, start_frame + step + 1])
 
-            # total_accuracy += get_selection_accuracy()
+            total_accuracy += get_selection_accuracy(logits[:, 0], step_targets[:, start_frame + step + 1],
+                                                     curr_seq_lengths, step)
 
         if do_train:
             loss.backward()
@@ -371,7 +390,7 @@ def evaluate(p_cnn, p_rnn, s_rnn, data_iter, p_criterion, s_criterion,
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
-               restart, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=2):
+               retrain, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
     cpu_device = torch.device('cpu')
 
     # setup  or load models, optimizers
@@ -388,7 +407,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
 
     # load model, optimizer states if resuming training
     if load_checkpoint:
-        best_placement_valid_loss, best_selection_valid_loss, start_epoch = load_save(load_checkpoint)
+        best_placement_valid_loss, best_selection_valid_loss, start_epoch = load_save(load_checkpoint, retrain)
     else:
         best_placement_valid_loss = float('inf')
         best_selection_valid_loss = float('inf')
@@ -427,34 +446,38 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_s_loss = epoch_s_loss / len(train_iter)
 
         if epoch % print_every_x_epoch == 0:
-            print(f'\tAvg. batch placement loss per unrolling: {epoch_p_loss:.5f}')
-            print(f'\tAvg. batch selection loss per unrolling: {epoch_s_loss:.5f}')
+            print(f'\tAvg. batch training placement loss per unrolling: {epoch_p_loss:.5f}')
+            print(f'\tAvg. batch training selection loss per unrolling: {epoch_s_loss:.5f}')
 
         if epoch % validate_every_x_epoch == 0:
             p_v_loss, p_v_acc, s_v_loss, s_v_acc = evaluate(placement_cnn, placement_rnn, 
                 selection_rnn, valid_iter, PLACEMENT_CRITERION, SELECTION_CRITERION,
                 device, writer, epoch / validate_every_x_epoch)
+                
+            print(f'\tAvg. batch validation placement loss per unrolling: {p_v_loss:.5f}')
+            print(f'\tAvg. batch validation selection loss per unrolling: {s_v_loss:.5f}')
 
             # track best performing model(s)
             if early_stopping:
+                # TODO reconfigure model saves
                 if p_v_loss < best_placement_valid_loss:
                     best_placement_valid_loss = p_v_loss
                     save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
-                        epoch, best_placement_valid_loss, best_selection_valid_loss,
-                        save_dir, best=True)
+                                    epoch, best_placement_valid_loss, best_selection_valid_loss,
+                                    save_dir, best=True)
                 else:
                     print("Validation loss increased. Stopping early..")
                     break
         
         if epoch == num_epochs - 1:
-            save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
-                epoch, best_placement_valid_loss, best_selection_valid_loss,
-                save_dir)
+            save_checkpoint(placement_cnn, placement_rnn, selection_rnn, epoch,
+                            best_placement_valid_loss, best_selection_valid_loss,
+                            save_dir)
     
     writer.close()
 
     # evaluate on test set
-    p_t_loss, p_t_acc, s_t_loss, s_t_acc = evaluate(placement_cnn, placement_rnn, placement_params,
+    p_t_loss, p_t_acc, s_t_loss, s_t_acc = evaluate(placement_cnn, placement_rnn,
         selection_rnn, test_iter, PLACEMENT_CRITERION, SELECTION_CRITERION, device, writer, -1)
 
     # save training summary stats to json file
@@ -469,7 +492,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         ('selection_test_accuracy', s_t_acc)
     ])
 
-    with open(os.path.join(save_dir, 'summary.json')) as f:
+    with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
         f.write(json.dumps(summary_json))
 
 def main():
@@ -488,12 +511,14 @@ def main():
     valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
     test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
 
-    datasets_size_str = (f'Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
-                           Valid: {len(valid_data)}, Test: {len(test_data)}')
+    datasets_size_str = (f"""Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
+                             Valid: {len(valid_data)}, Test: {len(test_data)}""")
     print(datasets_size_str)
 
+    # train_data summary json... (-> pass into run_models(..))
+
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, dataset_type, device, 
-               args.save_dir, args.load_checkpoint, args.restart)
+               args.save_dir, args.load_checkpoint, args.retrain)
 
 if __name__ == '__main__':
     main()

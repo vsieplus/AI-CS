@@ -170,6 +170,7 @@ class SelectionRNN(nn.Module):
 
         return logits, (hn.detach(), cn.detach())
 
+    # each [num_lstm_layer, batch, hidden]
     def initStates(self, batch_size, device):
         return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
                 torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device))    
