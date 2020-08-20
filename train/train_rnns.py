@@ -92,7 +92,6 @@ def predict_placements(logits, levels, lengths):
                 lengths: [batch] for each example, current length
         output: predictions [batch, unroll_length]; 1 -> step, 0 -> no step
     """
-
     thresholds = MAX_THRESHOLD - ((torch.tensor(levels, dtype=torch.float) - 1) / 
         (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
 
@@ -109,7 +108,6 @@ def predict_placements(logits, levels, lengths):
 
 def get_placement_accuracy(predictions, targets, lengths):
     """get placement accuracy between given predictions/targets"""
-
     correct = 0
     total_preds = 0
     for b in range(predictions.size(0)):
@@ -136,7 +134,7 @@ def get_placement_accuracy(predictions, targets, lengths):
 def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length):
     """compute relevant batch metavalues for padding/lengths"""
     sequence_lengths = []
-    for b in range(batch_size):
+    for b in range(len(sequence_unroll_lengths)):
         padded = curr_unrolling > sequence_unroll_lengths[b][0]
         sequence_lengths.append(sequence_unroll_lengths[b][1] if padded else unroll_length)
     
@@ -159,10 +157,10 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
 
     # [batch, # chart features]
     chart_feats = batch['chart_feats'].to(device)
-    levels = batch['chart_levels'].to(device)
+    #levels = batch['chart_levels'].to(device)
 
-    # [batch, max (audio) sequence length] (padded)
-    placement_targets = batch['placement_targets']
+    # [batch, ?] ? = max (audio) sequence length [padded]
+    placement_targets = batch['placement_targets'].to(device)
 
     # final_shape -> [batch, # of nonempty chart frames, hidden]
     clstm_hiddens = [[] for _ in range(batch_size)]
@@ -210,11 +208,17 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
         logits, clstm_hidden, states = rnn(cnn_output, chart_feats, states, audio_lengths)
 
         # [batch, unroll_len]
-        targets = placement_targets[:, start_frame:end_frame]
+        targets = placement_targets[:, audio_start_frame:audio_end_frame]
 
         for b in range(batch_size):
+            curr_unroll_audio_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
+
             # only clstm hiddens for chart frames with non-empty step placements
             clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_audio_placements])
+
+            all_targets.append(targets[b, :audio_lengths[b]])
+            b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
+            all_scores.append(b_dists[:, 1])
         
         # compute total loss for this unrolling
         loss = 0
@@ -228,13 +232,10 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
             nn.utils.clip_grad_norm_(placement_params, max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()
-
-            #all_targets.append(targets[b, :audio_lengths[b]])
-            #b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
-            #all_scores.append(b_dists[:, 1])
         
-        predictions = predict_placements(logits, levels, audio_lengths)
-        total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
+        # TODO fix levels
+        #predictions = predict_placements(logits, levels, audio_lengths)
+        #total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
 
         total_loss += loss.item()
 
@@ -295,6 +296,9 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
             end_frame = start_frame + SELECTION_UNROLLING_LEN
             last_unrolling = True
         unroll_length = end_frame - start_frame
+
+        if unroll_length == 0:
+            continue
 
         # [batch, unroll_length, # step features]
         step_inputs = step_sequence[:, start_frame:end_frame, :]
