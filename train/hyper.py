@@ -4,7 +4,7 @@ from torch.nn import CrossEntropyLoss
 
 SEED = 1949
 
-PAD_IDX = -50
+PAD_IDX = -1
 
 N_CHART_TYPES = 2
 N_LEVELS = 28
@@ -13,7 +13,7 @@ CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
 BATCH_SIZE = 1
 HIDDEN_SIZE = 128
 NUM_EPOCHS = 25
-MAX_GRAD_NORM = 2
+MAX_GRAD_NORM = 5
 
 HOP_LENGTH = 512
 
@@ -29,7 +29,7 @@ PLACEMENT_KERNEL_SIZES = [(7, 3), (3, 3)]   # (time, frequency) [height, width]
 PLACEMENT_POOL_STRIDE = (1, 3)
 PLACEMENT_POOL_KERNEL = (1, 3)
 
-PLACEMENT_UNROLLING_LEN = 100       # 100 frames of unrolling for placement model
+PLACEMENT_UNROLLING_LEN = 100
 
 # Thresholds for peak picking
 MIN_THRESHOLD = 0.25
@@ -41,7 +41,7 @@ PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-SELECTION_LR = 0.001
+SELECTION_LR = 0.0001
 
 SELECTION_HIDDEN_WEIGHT = 0.7
 NUM_SELECTION_LSTM_LAYERS = 2

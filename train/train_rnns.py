@@ -141,7 +141,7 @@ def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length)
     
     return sequence_lengths
 
-def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch, 
+def run_placement_batch(cnn, rnn, optimizer, criterion, batch, 
                         device, writer, do_train, curr_train_epoch=0):
     """train or eval the placement models with the specified parameters on the given batch"""
     if do_train:
@@ -229,14 +229,14 @@ def run_placement_batch(cnn, rnn, placement_params, optimizer, criterion, batch,
         if do_train:
             loss.backward()
             
-            # clip grads before step if L2 norm > 5
-            nn.utils.clip_grad_norm_(placement_params, max_norm=MAX_GRAD_NORM)
+            # clip grads before step
+            nn.utils.clip_grad_norm_(cnn.parameters(), max_norm=MAX_GRAD_NORM)
+            nn.utils.clip_grad_norm_(rnn.parameters(), max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()
         
         predictions = predict_placements(logits, levels, audio_lengths)
         total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
-
         total_loss += loss.item()
 
     clstm_hiddens = [torch.cat(hiddens_seq, dim=0) for hiddens_seq in clstm_hiddens]
@@ -338,7 +338,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
     return total_loss / num_unrollings, total_accuracy / num_unrollings
 
-def evaluate(p_cnn, p_rnn, p_params, s_rnn, data_iter, p_criterion, s_criterion,
+def evaluate(p_cnn, p_rnn, s_rnn, data_iter, p_criterion, s_criterion,
              device, writer, curr_validation):
     total_p_loss = 0
     total_s_loss = 0
@@ -347,7 +347,7 @@ def evaluate(p_cnn, p_rnn, p_params, s_rnn, data_iter, p_criterion, s_criterion,
 
     with torch.no_grad():
        for i, batch in enumerate(data_iter):
-            p_loss, p_acc, hiddens = run_placement_batch(p_cnn, p_rnn, p_params, None,
+            p_loss, p_acc, hiddens = run_placement_batch(p_cnn, p_rnn, None,
                 p_criterion, batch, device, writer, do_train=False)
 
             total_p_loss += p_loss
@@ -408,8 +408,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
 
         for i, batch in enumerate(train_iter):
             placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_cnn, 
-                placement_rnn, placement_params, placement_optim, PLACEMENT_CRITERION,
-                batch, device, writer, do_train=True, curr_train_epoch=epoch)
+                placement_rnn, placement_optim, PLACEMENT_CRITERION, batch, device, 
+                writer, do_train=True, curr_train_epoch=epoch)
 
             selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
                 SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=True)
@@ -432,8 +432,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
 
         if epoch % validate_every_x_epoch == 0:
             p_v_loss, p_v_acc, s_v_loss, s_v_acc = evaluate(placement_cnn, placement_rnn, 
-                placement_params, selection_rnn, valid_iter, PLACEMENT_CRITERION, 
-                SELECTION_CRITERION, device, writer, epoch / validate_every_x_epoch)
+                selection_rnn, valid_iter, PLACEMENT_CRITERION, SELECTION_CRITERION,
+                device, writer, epoch / validate_every_x_epoch)
 
             # track best performing model(s)
             if early_stopping:
@@ -444,8 +444,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
                         save_dir, best=True)
                 else:
                     print("Validation loss increased. Stopping early..")
-                    writer.close()
-                    breakpoint
+                    break
         
         if epoch == num_epochs - 1:
             save_checkpoint(placement_cnn, placement_rnn, selection_rnn,
@@ -489,8 +488,8 @@ def main():
     valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
     test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
 
-    datasets_size_str = f"""Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
-                            Valid: {len(valid_data)}, Test: {len(test_data)}"""
+    datasets_size_str = (f'Total charts in dataset: {len(dataset)}; Train: {len(train_data)}, 
+                           Valid: {len(valid_data)}, Test: {len(test_data)}')
     print(datasets_size_str)
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, dataset_type, device, 
