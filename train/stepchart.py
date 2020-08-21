@@ -13,7 +13,7 @@ from pathlib import Path
 from joblib import Memory
 
 from extract_audio_feats import extract_audio_feats, load_audio
-from hyper import PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES
+from hyper import HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES
 from util import convert_chartframe_to_melframe
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
@@ -123,9 +123,8 @@ def collate_charts(batch):
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
-
-	# dataset_json: path to json file with dataset metadata
 	def __init__(self, dataset_json):
+		"""dataset_json: path to json file with dataset metadata"""
 		assert(os.path.isfile(dataset_json))
 		with open(dataset_json, 'r') as f:
 			metadata = json.loads(f.read())
@@ -143,9 +142,12 @@ class StepchartDataset(Dataset):
 		
 		self.splits = metadata['splits']
 
-		# the actual training samples
+		self.n_unique_songs = 0
+
+		# load the actual training samples
 		self.load_charts(metadata['json_fps'])
 		self.print_summary()
+		self.compute_stats()
 
 	def __len__(self):
 		return len(self.charts)
@@ -164,6 +166,16 @@ class StepchartDataset(Dataset):
 			print(f'Maximum chart level: {self.max_level}')
 		print(f'Chart Permutations: {self.permutations}')
 
+	def compute_stats(self):
+		self.n_unique_charts = self.__len__() // len(self.permutations)
+		self.n_steps = sum([chart.n_steps for chart in self.charts])
+		self.n_audio_hours = sum([song.n_minutes for song in self.songs.values()]) / 60
+
+		if not self.step_artists:
+			self.step_artists = set()
+			for chart in self.charts:
+				self.step_artists.append(chart.step_artist)
+
 	# filter/load charts
 	def load_charts(self, json_fps):
 		print('Loading charts...')
@@ -174,7 +186,7 @@ class StepchartDataset(Dataset):
 				attrs = json.loads(f.read())
 			
 			# check attrs for each chart to see if we should add it to the dataset
-			chart_indices = self.charts_to_include(attrs)
+			chart_indices = self.filter_charts(attrs)
 
 			if not chart_indices:
 				continue
@@ -187,6 +199,7 @@ class StepchartDataset(Dataset):
 			if song_name not in self.songs:
 				self.songs[song_name] = Song(attrs['music_fp'], song_name,
 					attrs['artist'], attrs['genre'], attrs['songtype'])
+				self.n_unique_songs += 1
 
 			for chart_idx in chart_indices:
 				for permutation in self.permutations:
@@ -195,9 +208,10 @@ class StepchartDataset(Dataset):
 		
 		print('Done loading!')
 	
-	# determine which charts in the given attrs belongs in this dataset
-	# return list of indices, w/length between 0 <= ... <= len(attrs['charts'])
-	def charts_to_include(self, attrs):
+	def filter_charts(self, attrs):
+	"""determine which charts in the given attrs belongs in this dataset
+	   return list of indices, w/length between 0 <= ... <= len(attrs['charts'])
+	"""
 		chart_indices = []
 
 		valid_songtype = self.songtypes and attrs['songtype'] in self.songtypes
@@ -221,7 +235,7 @@ class StepchartDataset(Dataset):
 				continue
 
 			valid_author = (not self.step_artists or self.step_artists
-				and chart_attrs['credit'] in self.step_artists)
+							and chart_attrs['credit'] in self.step_artists)
 
 			if valid_author:
 				chart_indices.append(i)
@@ -243,6 +257,9 @@ class Song:
 
 		# shape [3, ?, 80]
 		self.audio_feats = extract_audio_feats(waveform, self.sample_rate)
+
+		# secs = (hop * melframe) / sample_rate
+		self.n_minutes = (HOP_LENGTH * self.audio_feats.size(1) / self.sample_rate) / 60
 
 CHART_PERMUTATIONS = {
 	'pump-single': {
@@ -455,6 +472,7 @@ class Chart:
 			chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
 
 		self.step_targets = step_sequence_to_targets(self.step_sequence)
+		self.n_steps = self.step_targets.size(0)
 
 	# return tensor of audio feats for this chart
 	def get_audio_feats(self):
