@@ -13,7 +13,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 # CNN part of the model takes in raw audio features and outputs processed features
 class PlacementCNN(nn.Module):
     # params define the two convolution layers
-    def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride, device):
+    def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride):
         super().__init__()
 
         # maintain H/W dimensions (assume stride = dilation = 1)
@@ -52,7 +52,7 @@ class PlacementCNN(nn.Module):
 
 # RNN + MLP part of the model (2nd half); take in processed audio features + chart type/level
 class PlacementRNN(nn.Module):
-    def __init__(self, num_lstm_layers, input_size, hidden_size, dropout=0.5):
+    def __init__(self, num_lstm_layers, input_size, hidden_size, dropout):
         super().__init__()
 
         self.num_lstm_layers = num_lstm_layers
@@ -106,6 +106,19 @@ class PlacementRNN(nn.Module):
     def initStates(self, batch_size, device):
         return (torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device),
                 torch.zeros(self.num_lstm_layers, batch_size, self.hidden_size, device=device))
+
+# combine cnn + rnn -> clstm for convenience
+class PlacementCLSTM(nn.Module):
+    def __init__(self, in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride,
+                 num_lstm_layers, input_size, hidden_size, dropout=0.5):
+        super().__init__()
+        self.cnn = PlacementCNN(in_channels, num_filters, kernel_sizes, pool_kernel, pool_stride)
+        self.rnn = PlacementRNN(num_lstm_layers, input_size, hidden_size, dropout)
+
+    def forward(self, audio_input, chart_features, states, input_lengths):
+        cnn_out = self.cnn(audio_input)
+        rnn_out = self.rnn(cnn_out, chart_features, states, input_lengths)
+        return rnn_out
 
 # model responsible for step selection
 # LSTM RNN architecture based off https://arxiv.org/abs/1703.06891 (section 4.4)

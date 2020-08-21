@@ -10,7 +10,7 @@ N_CHART_TYPES = 2
 N_LEVELS = 28
 CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
 
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 HIDDEN_SIZE = 128
 NUM_EPOCHS = 25
 MAX_GRAD_NORM = 5
@@ -68,3 +68,7 @@ SELECTION_INPUT_SIZES = {
     'pump-single': NUM_ARROW_STATES * 5,    # 20 element vector
     'pump-double': NUM_ARROW_STATES * 10,   # 40 element vector
 }
+
+CHECKPOINT_SAVE = 'checkpoint.tar'
+CLSTM_SAVE = 'clstm.bin'
+SRNN_SAVE = 'srnn.bin'
