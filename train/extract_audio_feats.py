@@ -23,7 +23,9 @@ def normalize_features(features):
     return (features - features.mean()) / features.std()
 
 # n_ffts -> sizes of FFT to use; default ~ 23ms, 46ms, 93ms
-def extract_audio_feats(waveform, sample_rate, n_ffts=[1024, 2048, 4096], hop_length=512, pad=0, n_mels=80):
+def extract_audio_feats(audio_fp, n_ffts=[1024, 2048, 4096], hop_length=512, pad=0, n_mels=80):
+    waveform, sample_rate = load_audio(audio_fp)
+
     audio_feats = []
     
     for n_fft in n_ffts:
@@ -47,4 +49,4 @@ def extract_audio_feats(waveform, sample_rate, n_ffts=[1024, 2048, 4096], hop_le
     # transpose -> final shape: [3, ?, 80] (channel, timestep, frequency)
     audio_feats = audio_feats.transpose(0, 2)
 
-    return audio_feats
+    return audio_feats, sample_rate

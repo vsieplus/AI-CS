@@ -23,8 +23,7 @@ CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
 memory = Memory(CACHE_DIR, verbose=0, compress=True)
 # to reset cache: memory.clear(warn=False)
 
-# add caching to extract_audio_feats functions
-load_audio = memory.cache(load_audio)
+# add caching to extract_audio_feats
 extract_audio_feats = memory.cache(extract_audio_feats)
 
 # returns splits of the given (torch) dataset; assumes 3 way split
@@ -174,7 +173,7 @@ class StepchartDataset(Dataset):
 		if not self.step_artists:
 			self.step_artists = set()
 			for chart in self.charts:
-				self.step_artists.append(chart.step_artist)
+				self.step_artists.add(chart.step_artist)
 
 	# filter/load charts
 	def load_charts(self, json_fps):
@@ -203,15 +202,15 @@ class StepchartDataset(Dataset):
 
 			for chart_idx in chart_indices:
 				for permutation in self.permutations:
-					self.charts.append(Chart(attrs['charts'][chart_idx],
-						self.songs[song_name], orig_filetype, permutation))
+					self.charts.append(Chart(attrs['charts'][chart_idx], self.songs[song_name],
+											 orig_filetype, permutation))
 		
 		print('Done loading!')
 	
 	def filter_charts(self, attrs):
-	"""determine which charts in the given attrs belongs in this dataset
-	   return list of indices, w/length between 0 <= ... <= len(attrs['charts'])
-	"""
+		""" determine which charts in the given attrs belongs in this dataset
+			return list of indices, w/length between 0 <= ... <= len(attrs['charts'])
+	   	"""
 		chart_indices = []
 
 		valid_songtype = self.songtypes and attrs['songtype'] in self.songtypes
@@ -253,10 +252,8 @@ class Song:
 		self.genre = genre
 		self.songtype = songtype
 
-		waveform, self.sample_rate = load_audio(audio_fp)
-
 		# shape [3, ?, 80]
-		self.audio_feats = extract_audio_feats(waveform, self.sample_rate)
+		self.audio_feats, self.sample_rate = extract_audio_feats(waveform, self.sample_rate)
 
 		# secs = (hop * melframe) / sample_rate
 		self.n_minutes = (HOP_LENGTH * self.audio_feats.size(1) / self.sample_rate) / 60
@@ -353,11 +350,7 @@ def permute_steps(steps, chart_type, permutation_type, filetype):
 	#    newsteps = '01001'            
 	if filetype == 'ucs':
 		steps = ucs_to_ssc(steps)
-
-	# replace 'F' ('finish' indicator?) with '0'
-	steps = steps.replace('F', '0')
-	steps = steps.replace('|', '0')
-
+	
 	if not permutation_type:
 		return steps
 
