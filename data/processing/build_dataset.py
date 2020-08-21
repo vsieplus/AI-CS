@@ -1,5 +1,5 @@
-# 'Construct' custom subsets of data - represent as text files with json filepaths,
-# in the same directory as a separate json with dataset metadata
+# 'Construct' custom subsets of data - represent as json files with json filepaths,
+# as well as dataset metadata (e.g. custom filters)
 # adapted from https://github.com/chrisdonahue/ddc/blob/master/dataset/dataset_json.py
 
 import argparse
@@ -14,36 +14,45 @@ ABS_PATH = Path(__file__).parent.absolute()
 DEFAULT_JSON_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
 DEFAULT_DATASETS_PATH = os.path.join(str(ABS_PATH), '../dataset/subsets')
 
+SONG_TYPES_LIST = ['arcade', 'fullsong', 'remix', 'shortcut']
+PERMUTATION_LIST = ['flip', 'mirror', 'flip_mirror']
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--json_dir', type=str, help='Input JSON dir')
     parser.add_argument('--datasets_dir', type=str, help='Dir to output file containing dataset info')
-    parser.add_argument('--splits', type=str, help='CSV list of split values for datasets (e.g. 0.8,0.1,0.1)')
-    parser.add_argument('--shuffle', dest='shuffle', action='store_true', help='If set, shuffle dataset before split')
+    
+    parser.add_argument('--splits', type=str, help='split values for datasets')
+    parser.add_argument('--shuffle', action='store_true', help='If set, shuffle dataset before split')
     parser.add_argument('--shuffle_seed', type=int, help='If set, use this seed for shuffling')
     parser.add_argument('--choose', dest='choose', action='store_true', help='If set, choose from list of packs')
 
     # song-filtering
     parser.add_argument('--song_types', type=str, help='song types to include; if empty no filter',
-        choices = ['arcade', 'fullsong', 'remix', 'shortcut'], nargs='+')
+                        choices=SONG_TYPES_LIST, nargs='+')
 
     # chart-filtering
-    parser.add_argument('--chart_type', type=str, help='pick chart type for this dataset',
-        choices = ['pump-single', 'pump-double'], required=True)
-    parser.add_argument('--step_artists', type=str, help='step chart authors to include if known, no filter if empty',
-        nargs='+')
-    parser.add_argument('--chart_difficulties', type=str, help='Whitelist of chart difficulties; if empty, no filter')
+    parser.add_argument('--chart_type', type=str, help='pick chart type for this dataset', 
+                        choices = ['pump-single', 'pump-double'], required=True)
+    parser.add_argument('--step_artists', type=str, nargs='+', help='step artists to include if known, no filter if empty')
+    parser.add_argument('--chart_difficulties', type=str, help='chart difficulties to include; if empty, no filter')
     parser.add_argument('--min_difficulty', type=int, help='Min chart difficulty')
     parser.add_argument('--max_difficulty', type=int, help='Max chart difficulty')
-    parser.add_argument('--permutations', type=str, help='List of permutation types to include in output',
-        choices = ['flip', 'mirror', 'flip_mirror'], nargs='+') # for data augmentation
+    parser.add_argument('--permutations', type=str, choices=PERMUTATION_LIST, nargs='+',
+                        help='List of permutation types to include in output') # for data augmentation
 
     parser.set_defaults(
         json_dir=DEFAULT_JSON_PATH,
         datasets_dir=DEFAULT_DATASETS_PATH,
+        splits='0.8,0.1,0.1',
+        choose=True,
+        song_types=SONG_TYPES_LIST,
         step_artists=[],
         chart_difficulties=[],
-        choose=True)
+        min_difficulty=1,
+        max_difficulty=28,
+        permutations=PERMUTATION_LIST
+    )
     
     return parser.parse_args()
 

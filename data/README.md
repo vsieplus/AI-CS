@@ -90,12 +90,11 @@ be directly used during model training.
 
 ## Creating a dataset
 
-To specify a custom subset of charts you can create a dataset. Calling
-`bash build_dataset.sh` will call `processing/dataset_json.py` with the specified
-parameters, which include difficulty levels, chart type (single/double), song bpm,
-song type (arcade/remix/...) and more. You may customize these parameters to build
-your own datasets. This script will also prompt you for a dataset **name** and
-ask which packs to choose songs and charts from.
+To specify a custom subset of charts you can create a dataset. This is done by
+calling `processing/build_dataset.py` which takes various filtering parameters,
+which include difficulty levels, chart type (single/double), song bpm, song type
+(arcade/remix/...) and more. You may customize these parameters to build your own datasets.
+This script will also prompt you for a dataset **name** and ask which packs to choose songs and charts from.
 
 The resulting file will be stored in `dataset/subsets/name.json` and will act as metadata
 to be used when training is initiated for a particular model (see `train/`).

@@ -128,6 +128,11 @@ def ssc_notes_parser(x):
         if len(measure) == 0:
             raise ValueError('Found measure with 0 notes')
 
+        # replace (vanish?) {L|n|1|0} steps + other invalid characters with '0'
+        for s in range(len(measure)):
+            measure[s] = re.sub(r'({.*})', '1', measure[s])
+            measure[s]  = re.sub('[^0-9]', '0', measure[s])
+
     return measures_clean
 
 # directly compute ([], time, beat, note)
