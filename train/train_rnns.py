@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
@@ -69,11 +69,11 @@ def save_model(model, save_dir, model_filename):
 
     torch.save(model.state_dict(), out_path)
 
-def load_save(save_dir, retrain, placement_clstm, selection_rnn):
+def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
     print(f'Loading checkpoint from {save_dir}...')
 
-    placement_clstm.load_state_dict(torch.load(os.path.join(save_dir, CLSTM_SAVE)))
-    selection_rnn.load_state_dict(torch.load(os.path.join(save_dir, SRNN_SAVE)))
+    placement_clstm.load_state_dict(torch.load(os.path.join(save_dir, CLSTM_SAVE), map_location=device))
+    selection_rnn.load_state_dict(torch.load(os.path.join(save_dir, SRNN_SAVE), map_location=device))
 
     checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
 
@@ -134,7 +134,7 @@ def get_placement_accuracy(predictions, targets, lengths):
 
     return correct / total_preds
 
-def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length):
+def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length, device):
     """compute relevant batch metavalues for padding/lengths"""
     sequence_lengths = []
     for b in range(len(sequence_unroll_lengths)):
@@ -144,15 +144,13 @@ def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length)
             if curr_unrolling == sequence_unroll_lengths[b][0] - 1:
                 length = sequence_unroll_lengths[b][1]
             else:
-                # cannot be 0 for pack_padded sequence; but pad token in targets
-                # will mask loss/backward (it's ok)
-                length = 1
+                length = 0
         else:
             length = unroll_length
         
         sequence_lengths.append(length)
     
-    return sequence_lengths
+    return torch.tensor(sequence_lengths, dtype=torch.long, device=device)
 
 def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_train, curr_train_epoch=0):
     """train or eval the placement models with the specified parameters on the given batch"""
@@ -209,7 +207,7 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
         if (audio_end_frame < first_frame or audio_start_frame > last_frame + 1 or unroll_length == 0):
             continue
 
-        audio_lengths = get_sequence_lengths(unrolling, audio_unroll_lengths, unroll_length)
+        audio_lengths = get_sequence_lengths(unrolling, audio_unroll_lengths, unroll_length, device)
 
         cnn_input = audio_feats[:, :, audio_start_frame:audio_end_frame]
 
@@ -220,14 +218,17 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
         targets = placement_targets[:, audio_start_frame:audio_end_frame]
 
         for b in range(batch_size):
-            curr_unroll_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
-
-            # only clstm hiddens for chart frames with non-empty step placements
-            clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_placements])
+            if audio_lengths[b] == 0:
+                continue
 
             all_targets.append(targets[b, :audio_lengths[b]])
             b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
             all_scores.append(b_dists[:, 1])
+            
+            curr_unroll_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
+
+            # only clstm hiddens for chart frames with non-empty step placements
+            clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_placements])
         
         # compute total loss for this unrolling
         loss = 0
@@ -332,7 +333,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
             continue
 
         # total lengths for each sequence for this unrolling
-        curr_seq_lengths = get_sequence_lengths(unrolling, seq_unroll_lengths, unroll_length)
+        curr_seq_lengths = get_sequence_lengths(unrolling, seq_unroll_lengths, unroll_length, device)
 
         # use targets for next timestep, compute loss; [batch, unroll] (already padded)
         loss = 0
@@ -415,14 +416,14 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     start_epoch = 0
     
     if load_checkpoint:
-        checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn)
+        checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn, device)
         if checkpoint:
             best_placement_valid_loss, best_selection_valid_loss, start_epoch = checkpoint
 
     writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', datetime.datetime.now().strftime('%m_%d_%y_%H_%M')))
 
     print('Starting training..')
-    for epoch in tqdm(range(num_epochs)):
+    for epoch in trange(num_epochs):
         if epoch < start_epoch:
             continue
 
@@ -431,7 +432,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_s_loss = 0
         # if device is gpu: report_memory()
 
-        for i, batch in enumerate(train_iter):
+        for i, batch in enumerate(tqdm(train_iter)):
             placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
                 placement_optim, PLACEMENT_CRITERION, batch, device, writer,
                 do_train=True, curr_train_epoch=epoch)
@@ -516,6 +517,7 @@ def log_training_stats(writer, dataset, summary_json):
         'total_steps': dataset.n_steps,
         'min_level': dataset.min_level,
         'max_level': dataset.max_level,
+        'avg_steps_per_second': dataset.avg_steps_per_second,
         **summary_json
     }
 

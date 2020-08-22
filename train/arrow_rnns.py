@@ -3,12 +3,28 @@
 # model performing step placement; C-LSTM architecture as presented in
 # dance dance convolution:  https://arxiv.org/abs/1703.06891 (section 4.2)
 
-from math import sqrt
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+def mask_rnn_outputs(logits, hn, cn, input_lengths, lstm_out=None):
+    """mask rnn outputs with the given input lengths, for 0-length inputs"""
+    
+    # mask outputs for batches that had original input_length = 0
+    mask = input_lengths == 0
+    logits_mask = mask.unsqueeze(1).unsqueeze(1).repeat(1, logits.size(1), logits.size(2))
+    logits = logits.masked_fill(logits_mask, 0) # [batch, unroll, out_dim]
+
+    if lstm_out is not None:
+        outputs_mask = mask.unsqueeze(1).unsqueeze(1).repeat(1, lstm_out.size(1), lstm_out.size(2))
+        lstm_out = lstm_out.masked_fill(outputs_mask, 0) # [batch, unroll, hidden]
+    
+    states_mask = mask.unsqueeze(1).unsqueeze(0).repeat(hn.size(0), 1, hn.size(2))
+    hn = hn.masked_fill(states_mask, 0) # [2, batch, hidden]
+    cn = cn.masked_fill(states_mask, 0) # [2, batch, hidden]
+
+    return logits, lstm_out, hn, cn
 
 # CNN part of the model takes in raw audio features and outputs processed features
 class PlacementCNN(nn.Module):
@@ -75,13 +91,17 @@ class PlacementRNN(nn.Module):
         unroll_length = processed_audio_input.size(1)
         device = processed_audio_input.device
 
+        # clamp input lengths to handle sequences whose unroll length is already 0
+        input_lengths_clamped = torch.clamp(input_lengths, min=1)
+
         # [batch, unroll_length, input_size] concat audio input with chart features
         #if all(input_lengths[0] == length for length in input_lengths):
         chart_features = chart_features.repeat(1, unroll_length).view(batch_size, unroll_length, -1)
         lstm_input = torch.cat((processed_audio_input, chart_features), dim=-1)
 
         # pack the sequence
-        lstm_input_packed = pack_padded_sequence(lstm_input, input_lengths, batch_first=True, enforce_sorted=False)
+        lstm_input_packed = pack_padded_sequence(lstm_input, input_lengths_clamped,
+                                                 batch_first=True, enforce_sorted=False)
 
         # [batch, unroll_length, hidden_size] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
@@ -97,6 +117,10 @@ class PlacementRNN(nn.Module):
         # use last layer hidden states as input; 2 fully-connected relu layers w/dropout
         linear1_out = self.dropout(self.relu(self.linear1(lstm_out)))
         logits = self.dropout(self.relu(self.linear2(linear1_out)))
+
+        # mask outputs if needed
+        if torch.any(input_lengths == 0):
+            logits, lstm_out, hn, cn = mask_rnn_outputs(logits, hn, cn, input_lengths, lstm_out)
 
         # return logits directly, along hidden state for each frame
         # [batch, unroll_length, 2] / [batch, unroll, hidden] / ([batch, hidden] x 2)
@@ -161,12 +185,18 @@ class SelectionRNN(nn.Module):
     def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
         # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
         if clstm_hidden is not None:
+            # normalize clstm hiddens, then sum
+
+
             weighted_hidden = self.hidden_weight * hidden + (self.placement_weight *
                 clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1))
         else:
             weighted_hidden = hidden
 
-        lstm_input_packed = pack_padded_sequence(step_input, input_lengths, batch_first=True, enforce_sorted=False)
+        input_lengths_clamped = torch.clamp(input_lengths, min=1)
+
+        lstm_input_packed = pack_padded_sequence(step_input, input_lengths_clamped,
+                                                 batch_first=True, enforce_sorted=False)
 
         # [batch, 1, hidden] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
@@ -180,6 +210,10 @@ class SelectionRNN(nn.Module):
         # [batch, 1, hidden -> hidden -> vocab (output) size]
         linear1_out = self.dropout(self.relu(self.linear1(lstm_out)))
         logits = self.dropout(self.relu(self.linear2(linear1_out)))
+
+        # mask outputs as in clstm rnn
+        if torch.any(input_lengths == 0):
+            logits, _, hn, cn = mask_rnn_outputs(logits, hn, cn, input_lengths)
 
         return logits, (hn.detach(), cn.detach())
 

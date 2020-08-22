@@ -6,7 +6,7 @@ import re
 
 from tqdm import tqdm
 import torch
-from torch.utils.data import Dataset, Sampler, random_split
+from torch.utils.data import Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
 
 from pathlib import Path
@@ -48,8 +48,8 @@ def collate_charts(batch):
 	chart_feats = []
 	levels = []
 
-	first_frame = float('inf')
-	last_frame = float('-inf')
+	first_frame = 100000000
+	last_frame = -1
 
 	placement_targets = []
 
@@ -61,9 +61,10 @@ def collate_charts(batch):
 	step_sequence_lengths = []
 
 	for chart in batch:
-		# transpose channels/timestep so timestep comes first
+		# transpose channels/timestep so timestep comes first for pad_sequence()
 		audio_feats.append(chart.get_audio_feats().transpose(0, 1))
 		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
+		placement_targets.append(chart.placement_target)
 
 		levels.append((chart_feats[-1][0, 2:] == 1).nonzero(as_tuple=False).flatten().item() + 1)
 
@@ -71,47 +72,37 @@ def collate_charts(batch):
 		step_sequence.append(chart.step_sequence)
 		step_targets.append(chart.step_targets)
 
+		if chart.first_frame < first_frame:
+			first_frame = chart.first_frame
+		
+		if chart.last_frame > last_frame:
+			last_frame = chart.last_frame
+
 		audio_lengths.append(audio_feats[-1].size(0))
 		step_sequence_lengths.append(step_sequence[-1].size(0))
-
-		# get chart frame numbers of step placements, [batch, placements (variable)]
-		placement_target = torch.zeros(audio_lengths[-1], dtype=torch.long)
-
-		sample_rate = chart.song.sample_rate
-		mel_placement_frames = [convert_chartframe_to_melframe(f, sample_rate) for f in chart.step_placement_frames]
-
-		# and set target to '1' at corresponding melframes
-		placement_target[torch.tensor(mel_placement_frames, dtype=torch.long)] = 1
-		placement_targets.append(placement_target)
-
-		if mel_placement_frames[0] < first_frame:
-			first_frame = mel_placement_frames[0]
-		
-		if mel_placement_frames[-1] > last_frame:
-			last_frame = mel_placement_frames[-1]
 
 	# transpose timestep/channel dims back => [batch, channels, max audio frames, freq]
 	audio_feats = pad_sequence(audio_feats, batch_first=True, padding_value=PAD_IDX).transpose(1, 2)
 	chart_feats = torch.cat(chart_feats, dim=0) # [batch, chart_feats]
 
-	# [batch, max arrow seq len (<= max_timesteps), arrow features]
-	step_sequence = pad_sequence(step_sequence, batch_first=True, padding_value=PAD_IDX)
-	step_targets = pad_sequence(step_targets, batch_first=True, padding_value=PAD_IDX)
-	
 	# [batch, max audio frames]
 	placement_targets = pad_sequence(placement_targets, batch_first=True, padding_value=PAD_IDX)
 
+	# [batch, max arrow seq len, arrow features] / [batch, max arrow seq len]
+	step_sequence = pad_sequence(step_sequence, batch_first=True, padding_value=PAD_IDX)
+	step_targets = pad_sequence(step_targets, batch_first=True, padding_value=PAD_IDX)
+
 	return {'audio_feats': audio_feats,
-			'audio_lengths': audio_lengths,
-			'first_step_frame': first_frame,
-			'last_step_frame': last_frame,
 			'chart_feats': chart_feats,
 			'chart_levels': levels,
+			'audio_lengths': audio_lengths,
 			'placement_targets': placement_targets,
+			'first_step_frame': first_frame,
+			'last_step_frame': last_frame,
 			'step_sequence': step_sequence,
 			'step_sequence_lengths': step_sequence_lengths,
 			'step_targets': step_targets,
-		}
+	}
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
@@ -168,6 +159,9 @@ class StepchartDataset(Dataset):
 			for chart in self.charts:
 				self.step_artists.add(chart.step_artist)
 
+		steps_per_second = [chart.steps_per_second for chart in self.charts]
+		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second) 
+
 	# filter/load charts
 	def load_charts(self, json_fps):
 		print('Loading charts...')
@@ -187,15 +181,15 @@ class StepchartDataset(Dataset):
 			orig_filetype = attrs['chart_fp'].split('.')[-1]
 
 			# create new song if needed
-			song_name = attrs['title']
-			if song_name not in self.songs:
-				self.songs[song_name] = Song(attrs['music_fp'], song_name,
-					attrs['artist'], attrs['genre'], attrs['songtype'])
+			song_path = attrs['music_fp']
+			if song_path not in self.songs:
+				self.songs[song_path] = Song(song_path, attrs['title'], attrs['artist'],
+											 attrs['genre'], attrs['songtype'])
 				self.n_unique_songs += 1
 
 			for chart_idx in chart_indices:
 				for permutation in self.permutations:
-					self.charts.append(Chart(attrs['charts'][chart_idx], self.songs[song_name],
+					self.charts.append(Chart(attrs['charts'][chart_idx], self.songs[song_path],
 											 orig_filetype, permutation))
 		
 		print('Done loading!')
@@ -349,10 +343,7 @@ def permute_steps(steps, chart_type, permutation_type, filetype):
 
 	permutation = CHART_PERMUTATIONS[chart_type][permutation_type]
 
-	try:
-		return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
-	except IndexError:
-		print(f"Index error for permutation {permutation}, on {steps}")
+	return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
 
 @memory.cache
 def parse_notes(notes, chart_type, permutation_type, filetype):
@@ -399,6 +390,24 @@ def step_sequence_to_targets(step_sequence):
 
 	return targets
 
+def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
+	# get chart frame numbers of step placements, [batch, placements (variable)]
+	placement_target = torch.zeros(audio_length, dtype=torch.long)
+
+	mel_placement_frames = [convert_chartframe_to_melframe(f, sample_rate) for f in placement_frames]
+
+	# ignore steps that come after the song has ended
+	mel_placement_frames = torch.tensor(mel_placement_frames, dtype=torch.long)
+	mel_placement_frames = torch.clamp(mel_placement_frames, min=0, max=audio_length - 1)
+
+	# and set target to '1' at corresponding melframes
+	placement_target[mel_placement_frames] = 1
+
+	first_frame = mel_placement_frames[0]
+	last_frame = mel_placement_frames[-1]
+
+	return placement_target, first_frame, last_frame
+
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""
 
@@ -414,6 +423,11 @@ class Chart:
 		# concat one-hot encodings of chart_type/level
 		chart_type_one_hot = [0 if self.chart_type == 'pump-single' else 1
 							  for _ in range(N_CHART_TYPES)]
+		chart_type_one_hot = [0] * N_CHART_TYPES
+		if self.chart_type == 'pump-single':
+			chart_type_one_hot[0] = 1
+		else:
+			chart_type_one_hot[1] = 1
 		level_one_hot = [0] * N_LEVELS
 		level_one_hot[self.level - 1] = 1
 		self.chart_feats = chart_type_one_hot + level_one_hot
@@ -425,6 +439,13 @@ class Chart:
 
 		self.step_targets = step_sequence_to_targets(self.step_sequence)
 		self.n_steps = self.step_targets.size(0)
+
+		self.steps_per_second = self.n_steps / (self.song.n_minutes * 60)
+
+		(self.placement_target,
+		 self.first_frame, self.last_frame) = placement_frames_to_targets(self.step_placement_frames,
+										   								  self.song.audio_feats.size(1),
+													  					  self.song.sample_rate)
 
 	# return tensor of audio feats for this chart
 	def get_audio_feats(self):
