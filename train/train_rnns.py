@@ -13,14 +13,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 
 from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from stepchart import StepchartDataset, get_splits, collate_charts
-from util import report_memory
+from util import report_memory, SummaryWriter
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
@@ -33,15 +32,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--save_dir', type=str, default=None, 
                         help="""Specify custom output directory to save models to. If blank, will save in ./models/dataset_name/""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
-    parser.add_argument('--retrain', action='store_true', default=False, 
-                        help='Use this option to start training from beginning with a checkpoint; Else resume training from when stopped')
+    parser.add_argument('--retrain', action='store_true', default=False, help=('Use this option to (re)train a model that'
+        'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
 
     args = parser.parse_args()
 
     if not args.dataset_path:
         if args.dataset_name:
             args.dataset_path = os.path.join(DATASETS_DIR, args.dataset_name + '.json')
-        elif not args.load_checkpoint:
+        elif args.load_checkpoint:
+            args.dataset_path = os.path.join(DATASETS_DIR, args.load_checkpoint.split(os.sep)[-1] + '.json')
+        else:    
             raise ValueError('--dataset_name, --dataset_path, or --load_checkpoint required')
 
     if not args.save_dir:
@@ -272,7 +273,7 @@ def get_selection_accuracy(logits, targets, seq_lengths, step):
 
             correct += (preds[b] == targets[b]).item()
     
-    return correct / total_preds
+    return correct / total_preds if total_preds != 0 else 0
 
 def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens, do_train):
     if do_train:
@@ -401,7 +402,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
                                      PLACEMENT_INPUT_SIZE, HIDDEN_SIZE).to(device)
-    placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR)
+    placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
 
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
                                  SELECTION_VOCAB_SIZES[dataset_type], HIDDEN_SIZE,
@@ -414,11 +415,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     start_epoch = 0
     
     if load_checkpoint:
-        checkpoint = load_save(load_checkpoint, placement_clstm, selection_rnn, retrain)
+        checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn)
         if checkpoint:
             best_placement_valid_loss, best_selection_valid_loss, start_epoch = checkpoint
 
-    writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs'))
+    writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', datetime.datetime.now().strftime('%m_%d_%y_%H_%M')))
 
     print('Starting training..')
     for epoch in tqdm(range(num_epochs)):
@@ -452,7 +453,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
 
         if epoch % print_every_x_epoch == 0:
             print(f'\tAvg. training placement loss per unrolling: {epoch_p_loss:.5f}')
-            print(f'\tAvg. training selection loss per unrolling: {epoch_s_loss:.5f}')
+            print(f'\tAvg. training selection loss per frame: {epoch_s_loss:.5f}')
 
         if epoch % validate_every_x_epoch == 0:
             (placement_valid_loss, placement_valid_acc, selection_valid_loss,
@@ -481,7 +482,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         
         save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss, save_dir)
 
-        if epoch == num_epochs - 1:
+        if not early_stopping and epoch == num_epochs - 1:
             save_model(placement_clstm, save_dir, CLSTM_SAVE)
             save_model(selection_rnn, save_dir, SRNN_SAVE)
 

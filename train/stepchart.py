@@ -130,7 +130,7 @@ class StepchartDataset(Dataset):
 		self.min_level = metadata['min_chart_difficulty']
 		self.max_level = metadata['max_chart_difficulty']
 
-		self.permutations = metadata['permutations'] + [None]
+		self.permutations = metadata['permutations'] + ['']
 		
 		self.splits = metadata['splits']
 
