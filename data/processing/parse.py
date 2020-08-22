@@ -130,8 +130,8 @@ def ssc_notes_parser(x):
 
         # replace (vanish?) {L|n|1|0} steps + other invalid characters with '0'
         for s in range(len(measure)):
-            measure[s] = re.sub(r'({.*})', '1', measure[s])
-            measure[s]  = re.sub('[^0-9]', '0', measure[s])
+            measure[s] = re.sub(r'({.*?})', '1', measure[s])
+            measure[s]  = re.sub('[^0123]', '0', measure[s])
 
     return measures_clean
 
