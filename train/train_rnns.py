@@ -2,6 +2,7 @@
 # (models defined in arrow_rnns.py)
 
 import argparse
+import datetime
 import json
 import os
 from pathlib import Path
@@ -136,8 +137,19 @@ def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length)
     """compute relevant batch metavalues for padding/lengths"""
     sequence_lengths = []
     for b in range(len(sequence_unroll_lengths)):
-        padded = curr_unrolling > sequence_unroll_lengths[b][0]
-        sequence_lengths.append(sequence_unroll_lengths[b][1] if padded else unroll_length)
+        padded = curr_unrolling >= sequence_unroll_lengths[b][0]
+
+        if padded:
+            if curr_unrolling == sequence_unroll_lengths[b][0] - 1:
+                length = sequence_unroll_lengths[b][1]
+            else:
+                # cannot be 0 for pack_padded sequence; but pad token in targets
+                # will mask loss/backward (it's ok)
+                length = 1
+        else:
+            length = unroll_length
+        
+        sequence_lengths.append(length)
     
     return sequence_lengths
 
@@ -349,7 +361,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
         total_loss += loss.item()
 
-    return total_loss / num_unrollings, total_accuracy / num_unrollings
+    return total_loss / num_frames, total_accuracy / num_frames
 
 def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion,
              device, writer, curr_validation):
@@ -447,8 +459,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
              selection_valid_acc) = evaluate(placement_clstm, selection_rnn, valid_iter, 
                 PLACEMENT_CRITERION, SELECTION_CRITERION, device, writer, epoch / validate_every_x_epoch)
                 
-            print(f'\tAvg. validation placement loss per unrolling: {placement_valid_loss:.5f}')
-            print(f'\tAvg. validation selection loss per unrolling: {selection_valid_loss:.5f}')
+            print(f'\tAvg. validation placement loss per frame: {placement_valid_loss:.5f}')
+            print(f'\tAvg. validation selection loss per frame: {selection_valid_loss:.5f}')
 
             # track best performing model(s)
             if early_stopping:
@@ -489,13 +501,13 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         'selection_test_accuracy': selection_test_acc
     }
 
-    log_training_stats(writer, dataset, summary_json)
+    summary_json = log_training_stats(writer, dataset, summary_json)
 
     with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
 
 def log_training_stats(writer, dataset, summary_json):
-    dataset_summary = {
+    summary_json = {
         'total_charts': len(dataset),
         'unique_charts': dataset.n_unique_charts,
         'unique_songs': dataset.n_unique_songs,
@@ -508,8 +520,8 @@ def log_training_stats(writer, dataset, summary_json):
 
     # add other dataset text values
     writer.add_text('dataset_name', dataset.name)
-    writer.add_text('chart_type', ', '.join(dataset.chart_type))
-    writer.add_text('song_types', ', '.join(dataset.song_types))
+    writer.add_text('chart_type', dataset.chart_type)
+    writer.add_text('song_types', ', '.join(dataset.songtypes))
     writer.add_text('step_artists', ', '.join(dataset.step_artists))
     writer.add_text('permutations', ', '.join(dataset.permutations))
 
@@ -523,8 +535,10 @@ def log_training_stats(writer, dataset, summary_json):
         'selection_hidden_wt': SELECTION_HIDDEN_WEIGHT
     }
 
-    writer.add_hparams(hparam_dict, dataset_summary)
+    writer.add_hparams(hparam_dict, summary_json)
     writer.close()
+
+    return summary_json
 
 def main():
     args = parse_args()

@@ -48,11 +48,10 @@ def collate_charts(batch):
 	chart_feats = []
 	levels = []
 
-	step_placements = []
+	first_frame = float('inf')
+	last_frame = float('-inf')
 
-	# [batch, chart frames (variable)] (just a list, not a tensor)
-	# records which audio frames recorded in chart data
-	step_frames = []
+	placement_targets = []
 
 	step_sequence = []
 	step_targets = []
@@ -68,15 +67,28 @@ def collate_charts(batch):
 
 		levels.append((chart_feats[-1][0, 2:] == 1).nonzero(as_tuple=False).flatten().item() + 1)
 
-		step_placements.append(torch.tensor(chart.step_placements))
-		step_frames.append(chart.step_frames)
-
 		# already tensors
 		step_sequence.append(chart.step_sequence)
 		step_targets.append(chart.step_targets)
 
 		audio_lengths.append(audio_feats[-1].size(0))
 		step_sequence_lengths.append(step_sequence[-1].size(0))
+
+		# get chart frame numbers of step placements, [batch, placements (variable)]
+		placement_target = torch.zeros(audio_lengths[-1], dtype=torch.long)
+
+		sample_rate = chart.song.sample_rate
+		mel_placement_frames = [convert_chartframe_to_melframe(f, sample_rate) for f in chart.step_placement_frames]
+
+		# and set target to '1' at corresponding melframes
+		placement_target[torch.tensor(mel_placement_frames, dtype=torch.long)] = 1
+		placement_targets.append(placement_target)
+
+		if mel_placement_frames[0] < first_frame:
+			first_frame = mel_placement_frames[0]
+		
+		if mel_placement_frames[-1] > last_frame:
+			last_frame = mel_placement_frames[-1]
 
 	# transpose timestep/channel dims back => [batch, channels, max audio frames, freq]
 	audio_feats = pad_sequence(audio_feats, batch_first=True, padding_value=PAD_IDX).transpose(1, 2)
@@ -86,25 +98,6 @@ def collate_charts(batch):
 	step_sequence = pad_sequence(step_sequence, batch_first=True, padding_value=PAD_IDX)
 	step_targets = pad_sequence(step_targets, batch_first=True, padding_value=PAD_IDX)
 	
-	# [batch, max chart frames (10ms)] if chart frame had a hit or not
-	step_placements = pad_sequence(step_placements, batch_first=True, padding_value=PAD_IDX)
-
-    # get chart frame numbers of step placements, [batch, placements (variable)]
-	step_placement_frames, first_frame, last_frame = get_step_placement_frames(step_placements, step_frames, batch_size)
-	
-	# for each batch example, consider all chart frames with a step,
-	# and set target to '1' at corresponding melframe
-	placement_targets = []
-	for b in range(batch_size):
-		targets = torch.zeros(audio_lengths[b], dtype=torch.long)
-
-		sample_rate = batch[b].song.sample_rate
-		mel_placement_frames = [convert_chartframe_to_melframe(f, sample_rate) 
-								for f in step_placement_frames[b]]
-
-		targets[mel_placement_frames] = 1
-		placement_targets.append(targets)
-
 	# [batch, max audio frames]
 	placement_targets = pad_sequence(placement_targets, batch_first=True, padding_value=PAD_IDX)
 
@@ -253,7 +246,7 @@ class Song:
 		self.songtype = songtype
 
 		# shape [3, ?, 80]
-		self.audio_feats, self.sample_rate = extract_audio_feats(waveform, self.sample_rate)
+		self.audio_feats, self.sample_rate = extract_audio_feats(self.audio_fp)
 
 		# secs = (hop * melframe) / sample_rate
 		self.n_minutes = (HOP_LENGTH * self.audio_feats.size(1) / self.sample_rate) / 60
@@ -356,35 +349,33 @@ def permute_steps(steps, chart_type, permutation_type, filetype):
 
 	permutation = CHART_PERMUTATIONS[chart_type][permutation_type]
 
-	return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
+	try:
+		return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
+	except IndexError:
+		print(f"Index error for permutation {permutation}, on {steps}")
 
 @memory.cache
 def parse_notes(notes, chart_type, permutation_type, filetype):
-	# [# frames] - numbers of (10ms) frames for each step
-	step_frames = []
-
-	# [# frames] for each frame in ^, whether or not a step was placed or not
-	step_placements = []
+	# [# frames] track which (10 ms) chart frames have steps
+	step_placement_frames = []
 
 	# [# frames, # step features] - sequence of non-empty steps with associated frame numbers
 	step_sequence = []
 
-	for _, _, time, steps in notes:
+	for i, (_, _, time, steps) in enumerate(notes):
 		if time < 0:
 			continue
 
-		# list containing absolute frame numbers corresponding to each split
-		step_frames.append(int(round(time * CHART_FRAME_RATE)))
-
-		# for each frame, 0 = no step, 1 = some step
+		# for each frame, track absolute frame number
 		step_this_frame = STEP_PATTERNS[filetype].search(steps)
-		step_placements.append(1 if step_this_frame else 0)
+		if step_this_frame:
+			step_placement_frames.append(int(round(time * CHART_FRAME_RATE)))
 
 		# only store non-empty steps in the sequence
 		if step_this_frame:
 			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
 
-	return step_frames, step_placements, sequence_to_tensor(step_sequence)
+	return step_placement_frames, sequence_to_tensor(step_sequence)
 
 def step_sequence_to_targets(step_sequence):
 	"""given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
@@ -408,38 +399,6 @@ def step_sequence_to_targets(step_sequence):
 
 	return targets
 
-def get_step_placement_frames(step_placements, step_frames, batch_size):
-	"""Given a sequence of step placements and 10ms frame numbers, return a list of the
-		frame numbers of step_frames which have a step (a '1'); Along with first/last frame
-	In:
-		step_placements: [batch, chart frames] - values in {0,1}, indicating a step or not
-		step_frames: [batch, chart frames (variable)] - 10ms audio frame numbers that chart frames occurred at
-	Out:
-		step_placement_frames: [batch, chart frames with a step (variable)]
-	"""	
-	step_placement_frames = []
-	first_frame = float('inf')
-	last_frame = float('-inf')
-	for b in range(batch_size):
-	    # the indices of step_frames which had step placements
-		placement_indices = (step_placements[b] == 1).nonzero(as_tuple=False).flatten().tolist()
-
-		# the subset of step_frames (actual chart frame numbers) that had placements
-		step_placement_frames.append([step_frames[b][idx] for idx in placement_indices])
-
-		curr_first_frame = step_frames[b][placement_indices[0]]
-
-		# track the first and last frames with chart non-emtpy step placements
-		if curr_first_frame < first_frame:
-			first_frame = curr_first_frame
-
-		curr_last_frame = step_frames[b][placement_indices[-1]]
-
-		if curr_last_frame > last_frame:
-			last_frame = curr_last_frame
-
-	return step_placement_frames, first_frame, last_frame
-
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""
 
@@ -461,8 +420,8 @@ class Chart:
 
 		self.permutation_type = permutation_type
 
-		self.step_frames, self.step_placements, self.step_sequence = parse_notes(
-			chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
+		self.step_placement_frames, self.step_sequence = parse_notes(chart_attrs['notes'], self.chart_type,
+																	 self.permutation_type, self.filetype)
 
 		self.step_targets = step_sequence_to_targets(self.step_sequence)
 		self.n_steps = self.step_targets.size(0)
