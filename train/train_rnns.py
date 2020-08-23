@@ -53,7 +53,8 @@ def parse_args() -> argparse.Namespace:
 
     return args
 
-def save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss, save_dir):
+def save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss, 
+                    train_clstm, train_srnn, save_dir):
     out_path = os.path.join(save_dir, CHECKPOINT_SAVE)
     
     print(f'\tSaving checkpoint to {out_path}')
@@ -61,6 +62,8 @@ def save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss,
         'epoch': epoch,
         'best_placement_valid_loss': best_placement_valid_loss,
         'best_selection_valid_loss': best_selection_valid_loss,
+        'train_clstm': train_clstm,
+        'train_srnn': train_srnn,
     }, out_path)
 
 def save_model(model, save_dir, model_filename):
@@ -83,8 +86,11 @@ def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
         start_epoch = checkpoint['epoch']
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
         best_selection_valid_loss = checkpoint['best_selection_valid_loss']
+        train_clstm = checkpoint['train_clstm']
+        train_srnn = checkpoint['train_srnn']
 
-        return start_epoch, best_placement_valid_loss, best_selection_valid_loss
+        return (start_epoch, best_placement_valid_loss, best_selection_valid_loss,
+                train_clstm, train_srnn)
     else:
         return None
 
@@ -132,19 +138,16 @@ def get_placement_accuracy(predictions, targets, lengths):
 
             correct += frame_match or shift_match
 
-    return correct / total_preds
+    return correct / total_preds if total_preds != 0 else 0
 
 def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length, device):
     """compute relevant batch metavalues for padding/lengths"""
     sequence_lengths = []
     for b in range(len(sequence_unroll_lengths)):
-        padded = curr_unrolling >= sequence_unroll_lengths[b][0]
-
-        if padded:
-            if curr_unrolling == sequence_unroll_lengths[b][0] - 1:
-                length = sequence_unroll_lengths[b][1]
-            else:
-                length = 0
+        if curr_unrolling == sequence_unroll_lengths[b][0]:
+            length = sequence_unroll_lengths[b][1]
+        elif curr_unrolling > sequence_unroll_lengths[b][0]:
+            length = 0
         else:
             length = unroll_length
         
@@ -404,7 +407,7 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
-               retrain, dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
+               retrain, dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=1):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
@@ -414,23 +417,34 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
                                  SELECTION_VOCAB_SIZES[dataset_type], HIDDEN_SIZE,
                                  SELECTION_HIDDEN_WEIGHT).to(device)
-    selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR)
+    selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR, momentum=0.9)
 
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
     best_selection_valid_loss = float('inf')
     start_epoch = 0
+    train_clstm = True
+    train_srnn = True
     
     if load_checkpoint:
         checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn, device)
         if checkpoint:
-            best_placement_valid_loss, best_selection_valid_loss, start_epoch = checkpoint
+            (best_placement_valid_loss, best_selection_valid_loss, start_epoch,
+             train_clstm, train_srnn) = checkpoint
 
     writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', datetime.datetime.now().strftime('%m_%d_%y_%H_%M')))
 
     print('Starting training..')
     for epoch in trange(num_epochs):
         if epoch < start_epoch:
+            # enumerate data loaders to maintain consistent epoch batching
+            for i, b in enumerate(train_iter):
+                pass
+            
+            if epoch % validate_every_x_epoch == 0:
+                for i, b in enumerate(valid_iter):
+                    pass
+
             continue
 
         print('Epoch: {}'.format(epoch))
@@ -441,10 +455,10 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         for i, batch in enumerate(tqdm(train_iter)):
             placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
                 placement_optim, PLACEMENT_CRITERION, batch, device, writer,
-                do_train=True, curr_train_epoch=epoch)
+                do_train=train_clstm, curr_train_epoch=epoch)
 
             selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
-                SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=True)
+                SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=train_srnn)
 
             epoch_p_loss += placement_loss
             epoch_s_loss += selection_loss
@@ -465,12 +479,13 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         if epoch % validate_every_x_epoch == 0:
             (placement_valid_loss, placement_valid_acc, selection_valid_loss,
              selection_valid_acc) = evaluate(placement_clstm, selection_rnn, valid_iter, 
-                PLACEMENT_CRITERION, SELECTION_CRITERION, device, writer, epoch / validate_every_x_epoch)
+                                             PLACEMENT_CRITERION, SELECTION_CRITERION, device, 
+                                             writer, epoch / validate_every_x_epoch)
                 
             print(f'\tAvg. validation placement loss per frame: {placement_valid_loss:.5f}')
             print(f'\tAvg. validation selection loss per frame: {selection_valid_loss:.5f}')
 
-            # track best performing model(s)
+            # track best performing model(s) or save every epoch
             if early_stopping:
                 better_placement = placement_valid_loss < best_placement_valid_loss
                 better_selection = selection_valid_loss < best_selection_valid_loss
@@ -478,24 +493,33 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
                 if better_placement:
                     best_placement_valid_loss = placement_valid_loss
                     save_model(placement_clstm, save_dir, CLSTM_SAVE)
+                else:
+                    print("Placement validation loss increased, stopping CLSTM training")
+                    train_clstm = False
 
                 if better_selection:
                     best_selection_valid_loss = selection_valid_loss
                     save_model(selection_rnn, save_dir, SRNN_SAVE)
+                else:
+                    # cease training the placement model
+                    print("Placement validation loss increased, stopping SRNN training")
+                    train_srnn = False
 
                 if not better_placement and not better_selection:
-                    print("Validation loss increased. Stopping early..")
+                    print("Both validation losses have increased. Stopping early..")
                     break
-        
-        save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss, save_dir)
+            else:
+                save_model(placement_clstm, save_dir, CLSTM_SAVE)
+                save_model(selection_rnn, save_dir, SRNN_SAVE)
 
-        if not early_stopping and epoch == num_epochs - 1:
-            save_model(placement_clstm, save_dir, CLSTM_SAVE)
-            save_model(selection_rnn, save_dir, SRNN_SAVE)
+            save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss,
+                            train_clstm, train_srnn, save_dir)
 
     # evaluate on test set
-    placement_test_loss, placement_test_acc, selection_test_loss, selection_test_acc = evaluate(placement_clstm,
-        selection_rnn, test_iter, PLACEMENT_CRITERION, SELECTION_CRITERION, device, writer, -1)
+    (placement_test_loss, placement_test_acc,
+     selection_test_loss, selection_test_acc) = evaluate(placement_clstm, selection_rnn, test_iter, 
+                                                         PLACEMENT_CRITERION, SELECTION_CRITERION,
+                                                         device, writer, -1)
 
     # save training summary stats to json file
     summary_json = {
