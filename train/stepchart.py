@@ -66,7 +66,7 @@ def collate_charts(batch):
 		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
 		placement_targets.append(chart.placement_target)
 
-		levels.append((chart_feats[-1][0, 2:] == 1).nonzero(as_tuple=False).flatten().item() + 1)
+		levels.append(chart.level)
 
 		# already tensors
 		step_sequence.append(chart.step_sequence)

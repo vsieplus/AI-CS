@@ -179,17 +179,36 @@ class SelectionRNN(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
+    def compute_weighted_hidden(self, clstm_hidden, hidden, input_lengths):
+        clstm_hidden = clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1)
+
+        # normalize clstm_hiddens to ranges of corresponding hiddens, then sum
+        for b in range(clstm_hidden.size(0)):
+            if input_lengths[b] == 0:
+                continue
+
+            for layer in range(self.num_lstm_layers):
+                min_clstm_hidden = min(clstm_hidden[layer, b])
+                min_hidden = min(hidden[layer,b])
+
+                clstm_hidden_range = max(clstm_hidden[layer, b]) - min_clstm_hidden
+                hidden_range = max(hidden[layer, b]) - min_hidden
+
+                if clstm_hidden_range > 0:
+                    clstm_hidden[layer, b] = ((clstm_hidden[layer, b] - min_clstm_hidden) / clstm_hidden_range)
+
+                if hidden_range > 0:            
+                    clstm_hidden[layer, b] = min_hidden + (clstm_hidden[layer, b] * hidden_range)
+
+        return self.hidden_weight * hidden + self.placement_weight * clstm_hidden
+
     # step_input: [batch, 1, input_size]
     # clstm_hidden: [batch, hidden_size]
     # hidden, cell: [num_lstm_layers, batch, hidden_size]
     def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
         # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
         if clstm_hidden is not None:
-            # normalize clstm hiddens, then sum
-
-
-            weighted_hidden = self.hidden_weight * hidden + (self.placement_weight *
-                clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1))
+            weighted_hidden = self.compute_weighted_hidden(clstm_hidden, hidden, input_lengths)
         else:
             weighted_hidden = hidden
 
