@@ -180,18 +180,19 @@ class SelectionRNN(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def compute_weighted_hidden(self, clstm_hidden, hidden, input_lengths):
+        # -> [num_lstm_layers, batch, hidden]
         clstm_hidden = clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1)
 
         # normalize clstm_hiddens to ranges of corresponding hiddens, then sum
-        for b in range(clstm_hidden.size(0)):
+        for b in range(clstm_hidden.size(1)):
             if input_lengths[b] == 0:
                 continue
 
-            for layer in range(self.num_lstm_layers):
-                min_clstm_hidden = min(clstm_hidden[layer, b])
-                min_hidden = min(hidden[layer,b])
+            min_clstm_hidden = min(clstm_hidden[0, b])
+            clstm_hidden_range = max(clstm_hidden[0, b]) - min_clstm_hidden
 
-                clstm_hidden_range = max(clstm_hidden[layer, b]) - min_clstm_hidden
+            for layer in range(self.num_lstm_layers):
+                min_hidden = min(hidden[layer, b])
                 hidden_range = max(hidden[layer, b]) - min_hidden
 
                 if clstm_hidden_range > 0:
