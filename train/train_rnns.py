@@ -53,13 +53,14 @@ def parse_args() -> argparse.Namespace:
 
     return args
 
-def save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss, 
-                    train_clstm, train_srnn, save_dir):
+def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, 
+                    best_selection_valid_loss, train_clstm, train_srnn, save_dir):
     out_path = os.path.join(save_dir, CHECKPOINT_SAVE)
     
     print(f'\tSaving checkpoint to {out_path}')
     torch.save({
         'epoch': epoch,
+        'curr_epoch_batch': curr_epoch_batch,
         'best_placement_valid_loss': best_placement_valid_loss,
         'best_selection_valid_loss': best_selection_valid_loss,
         'train_clstm': train_clstm,
@@ -75,8 +76,18 @@ def save_model(model, save_dir, model_filename):
 def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
     print(f'Loading checkpoint from {save_dir}...')
 
-    placement_clstm.load_state_dict(torch.load(os.path.join(save_dir, CLSTM_SAVE), map_location=device))
-    selection_rnn.load_state_dict(torch.load(os.path.join(save_dir, SRNN_SAVE), map_location=device))
+    clstm_path = os.path.join(save_dir, CLSTM_SAVE)
+    srnn_path = os.path.join(save_dir, SRNN_SAVE)
+    
+    if os.path.isfile(clstm_path):
+        placement_clstm.load_state_dict(torch.load(clstm_path, map_location=device))
+    else:
+        print(f'No saved {CLSTM_SAVE} file found in {save_dir}, starting from base model')
+
+    if os.path.isfile(srnn_path):
+        selection_rnn.load_state_dict(torch.load(srnn_path, map_location=device))
+    else:
+        print(f'No saved {SRNN_SAVE} file found in {save_dir}, starting from base model')
 
     checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
 
@@ -84,13 +95,14 @@ def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
     # (i.e. give option to retrain some more on an already trained model)       
     if not retrain:
         start_epoch = checkpoint['epoch']
+        start_epoch_batch = checkpoint['curr_epoch_batch']
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
         best_selection_valid_loss = checkpoint['best_selection_valid_loss']
         train_clstm = checkpoint['train_clstm']
         train_srnn = checkpoint['train_srnn']
 
-        return (start_epoch, best_placement_valid_loss, best_selection_valid_loss,
-                train_clstm, train_srnn)
+        return (start_epoch, start_epoch_batch, best_placement_valid_loss, 
+                best_selection_valid_loss, train_clstm, train_srnn)
     else:
         return None
 
@@ -294,7 +306,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
     step_targets = batch['step_targets'].to(device)
     batch_size = step_sequence.size(0)
 
-    # lengths of each step sequence; should equal true size of original clstm_hiddens tensors
+    # lengths of each step sequence; should equal true sizes of original clstm_hiddens tensors
     step_sequence_lengths = batch['step_sequence_lengths']
     num_frames = max(step_sequence_lengths)
 
@@ -349,6 +361,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
                 
             # [batch, 1, # step features] / [batch, hiddens] - feed clstm hiddens 1 by 1
             step_inputs = step_sequence[:, abs_step, :].unsqueeze(1)
+            
             curr_clstm_hiddens = clstm_hiddens[:, abs_step]
 
             # ones or zeros
@@ -407,7 +420,7 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
-               retrain, dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=1):
+               retrain, dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
@@ -423,14 +436,15 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     best_placement_valid_loss = float('inf')
     best_selection_valid_loss = float('inf')
     start_epoch = 0
+    start_epoch_batch = 0
     train_clstm = True
     train_srnn = True
     
     if load_checkpoint:
         checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn, device)
         if checkpoint:
-            (best_placement_valid_loss, best_selection_valid_loss, start_epoch,
-             train_clstm, train_srnn) = checkpoint
+            (start_epoch, start_epoch_batch, best_placement_valid_loss, 
+             best_selection_valid_loss, train_clstm, train_srnn) = checkpoint
 
     writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', datetime.datetime.now().strftime('%m_%d_%y_%H_%M')))
 
@@ -450,9 +464,16 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         print('Epoch: {}'.format(epoch))
         epoch_p_loss = 0
         epoch_s_loss = 0
-        # if device is gpu: report_memory()
+        curr_epoch_batch = 0
+        report_memory(show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
+            # if resuming from checkpoint, skip batches until starting batch for the epoch
+            if start_epoch_batch > 0:
+                if i + 1 == start_epoch_batch:
+                    start_epoch_batch = 0
+                continue
+
             placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
                 placement_optim, PLACEMENT_CRITERION, batch, device, writer,
                 do_train=train_clstm, curr_train_epoch=epoch)
@@ -468,7 +489,17 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
             writer.add_scalar('accuracy/train_placement', placement_acc, step)
             writer.add_scalar('loss/train_selection', selection_loss, step)
             writer.add_scalar('accuracy/train_selection', selection_acc, step)
-        
+
+            curr_epoch_batch += 1
+
+            save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss,
+                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
+
+            if train_clstm:
+                save_model(placement_clstm, save_dir, CLSTM_SAVE)
+            if train_srnn:
+                save_model(selection_rnn, save_dir, SRNN_SAVE)                            
+
         epoch_p_loss = epoch_p_loss / len(train_iter)
         epoch_s_loss = epoch_s_loss / len(train_iter)
 
@@ -508,12 +539,9 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
                 if not better_placement and not better_selection:
                     print("Both validation losses have increased. Stopping early..")
                     break
-            else:
-                save_model(placement_clstm, save_dir, CLSTM_SAVE)
-                save_model(selection_rnn, save_dir, SRNN_SAVE)
 
-            save_checkpoint(epoch, best_placement_valid_loss, best_selection_valid_loss,
-                            train_clstm, train_srnn, save_dir)
+            save_checkpoint(epoch + 1, 0, best_placement_valid_loss,
+                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
 
     # evaluate on test set
     (placement_test_loss, placement_test_acc,
