@@ -394,11 +394,15 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
 	placement_target = torch.zeros(audio_length, dtype=torch.long)
 
-	mel_placement_frames = [convert_chartframe_to_melframe(f, sample_rate) for f in placement_frames]
+	mel_placement_frames = []
+	for f in placement_frames:
+		melframe = convert_chartframe_to_melframe(f, sample_rate)
 
-	# ignore steps that come after the song has ended
+		# ignore steps that come after the song has ended
+		if melframe < audio_length:
+			mel_placement_frames.append(melframe)
+
 	mel_placement_frames = torch.tensor(mel_placement_frames, dtype=torch.long)
-	mel_placement_frames = torch.clamp(mel_placement_frames, min=0, max=audio_length - 1)
 
 	# and set target to '1' at corresponding melframes
 	placement_target[mel_placement_frames] = 1
@@ -436,16 +440,19 @@ class Chart:
 
 		self.step_placement_frames, self.step_sequence = parse_notes(chart_attrs['notes'], self.chart_type,
 																	 self.permutation_type, self.filetype)
-
 		self.step_targets = step_sequence_to_targets(self.step_sequence)
-		self.n_steps = self.step_targets.size(0)
-
-		self.steps_per_second = self.n_steps / (self.song.n_minutes * 60)
 
 		(self.placement_target,
 		 self.first_frame, self.last_frame) = placement_frames_to_targets(self.step_placement_frames,
 										   								  self.song.audio_feats.size(1),
 													  					  self.song.sample_rate)
+		# ignore steps in sequence after song has ended
+		# (make sure length matches num of placement targets)
+		self.step_sequence = self.step_sequence[:self.placement_target.sum()]
+		self.step_targets = self.step_targets[:self.placement_target.sum()]
+
+		self.n_steps = self.step_sequence.size(0)
+		self.steps_per_second = self.n_steps / (self.song.n_minutes * 60)
 
 	# return tensor of audio feats for this chart
 	def get_audio_feats(self):
