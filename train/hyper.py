@@ -19,7 +19,7 @@ HOP_LENGTH = 512
 
 # actually bce loss, but use crossentropy for ignore_index functionality
 PLACEMENT_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-PLACEMENT_LR = 0.001
+PLACEMENT_LR = 0.00001
 
 PLACEMENT_AUDIO_PAD = 7  # how many frames of audio context to use during placement training
 PLACEMENT_CHANNELS = [3, 10]
@@ -41,7 +41,7 @@ PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-SELECTION_LR = 0.001
+SELECTION_LR = 0.0001
 
 SELECTION_HIDDEN_WEIGHT = 0.8
 NUM_SELECTION_LSTM_LAYERS = 2

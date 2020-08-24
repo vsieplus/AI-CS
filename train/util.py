@@ -22,24 +22,25 @@ class SummaryWriter(SummaryWriter):
                 w_hp.add_scalar(k, v)
 
 # memory reporting
-def report_memory(name='', show_tensors=False):
-    """Simple GPU memory report."""
+def report_memory(device, show_tensors=False):
+    """Simple CPU/GPU memory report."""
 
-    mega_bytes = 1024.0 * 1024.0
-    string = name + 'memory (MB)'
-    string += ' | allocated: {}'.format(torch.cuda.memory_allocated() / mega_bytes)
-    string += ' | max allocated: {}'.format(torch.cuda.max_memory_allocated() / mega_bytes)
-    string += ' | cached: {}'.format(torch.cuda.memory_cached() / mega_bytes)
-    string += ' | max cached: {}\n'.format(torch.cuda.max_memory_cached()/ mega_bytes)
-    print(string)
+    if device.type == 'cuda':
+        mega_bytes = 1024.0 * 1024.0
+        string = device.type + 'memory (MB)'
+        string += ' | allocated: {}'.format(torch.cuda.memory_allocated(device) / mega_bytes)
+        string += ' | max allocated: {}'.format(torch.cuda.max_memory_allocated(device) / mega_bytes)
+        string += ' | cached: {}'.format(torch.cuda.memory_cached(device) / mega_bytes)
+        string += ' | max cached: {}\n'.format(torch.cuda.max_memory_cached(device)/ mega_bytes)
+        print(string)
 
     if show_tensors:
+        print('Tensor Report:\n')
         for obj in gc.get_objects():
-            try:
-                if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-                    print(type(obj), obj.size())
-            except:
-                pass
+            if torch.is_tensor(obj) and device.type == obj.device.type: 
+                print(type(obj), obj.size(), f'requires_grad: {obj.requires_grad}')
+                if(obj.size() == torch.Size([2])):
+                    print(obj.data)
         print('\n')
 
 def convert_chartframe_to_melframe(frame, sample_rate, hop_length=HOP_LENGTH, chart_frame_rate=CHART_FRAME_RATE):

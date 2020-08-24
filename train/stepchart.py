@@ -200,31 +200,25 @@ class StepchartDataset(Dataset):
 	   	"""
 		chart_indices = []
 
-		valid_songtype = self.songtypes and attrs['songtype'] in self.songtypes
+		if not self.songtypes or self.songtypes and attrs['songtype'] in self.songtypes:
+			for i, chart_attrs in enumerate(attrs['charts']):
+				if chart_attrs['stepstype'] != self.chart_type:
+					continue
 
-		if not valid_songtype:
-			return
+				chart_level = int(chart_attrs['meter'])
+				if self.chart_difficulties:
+					valid_level = chart_level in self.chart_difficulties
+				else:
+					valid_level = (self.min_level <= chart_level and chart_level <= self.max_level)
 
-		for i, chart_attrs in enumerate(attrs['charts']):
-			valid_type = chart_attrs['stepstype'] == self.chart_type
+				if not valid_level:
+					continue
 
-			if not valid_type:
-				continue
+				valid_author = (not self.step_artists or self.step_artists
+								and chart_attrs['credit'] in self.step_artists)
 
-			chart_level = int(chart_attrs['meter'])
-			if self.chart_difficulties:
-				valid_level = chart_level in self.chart_difficulties
-			else:
-				valid_level = (self.min_level <= chart_level and chart_level <= self.max_level)
-
-			if not valid_level:
-				continue
-
-			valid_author = (not self.step_artists or self.step_artists
-							and chart_attrs['credit'] in self.step_artists)
-
-			if valid_author:
-				chart_indices.append(i)
+				if valid_author:
+					chart_indices.append(i)
 
 		return chart_indices
 
@@ -407,8 +401,8 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# and set target to '1' at corresponding melframes
 	placement_target[mel_placement_frames] = 1
 
-	first_frame = mel_placement_frames[0]
-	last_frame = mel_placement_frames[-1]
+	first_frame = mel_placement_frames[0].item()
+	last_frame = mel_placement_frames[-1].item()
 
 	return placement_target, first_frame, last_frame
 

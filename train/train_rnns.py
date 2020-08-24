@@ -3,6 +3,7 @@
 
 import argparse
 import datetime
+import gc
 import json
 import os
 from pathlib import Path
@@ -425,7 +426,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
                                      PLACEMENT_INPUT_SIZE, HIDDEN_SIZE).to(device)
-    placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
+    placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
+    #placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
 
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
                                  SELECTION_VOCAB_SIZES[dataset_type], HIDDEN_SIZE,
@@ -452,11 +454,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     for epoch in trange(num_epochs):
         if epoch < start_epoch:
             # enumerate data loaders to maintain consistent epoch batching
-            for i, b in enumerate(train_iter):
+            for i, _ in enumerate(train_iter):
                 pass
             
             if epoch % validate_every_x_epoch == 0:
-                for i, b in enumerate(valid_iter):
+                for i, _ in enumerate(valid_iter):
                     pass
 
             continue
@@ -465,7 +467,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_p_loss = 0
         epoch_s_loss = 0
         curr_epoch_batch = 0
-        report_memory(show_tensors=True)
+        report_memory(device=device, show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
             # if resuming from checkpoint, skip batches until starting batch for the epoch
@@ -474,12 +476,15 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
                     start_epoch_batch = 0
                 continue
 
-            placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
-                placement_optim, PLACEMENT_CRITERION, batch, device, writer,
-                do_train=train_clstm, curr_train_epoch=epoch)
+            # TODO find why extra set of grads is stored
+            with torch.set_grad_enabled(train_clstm):
+                placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
+                    placement_optim, PLACEMENT_CRITERION, batch, device, writer,
+                    do_train=train_clstm, curr_train_epoch=epoch)
 
-            selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
-                SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=train_srnn)
+            with torch.set_grad_enabled(train_srnn):
+                selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
+                    SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=train_srnn)
 
             epoch_p_loss += placement_loss
             epoch_s_loss += selection_loss
@@ -492,13 +497,13 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
 
             curr_epoch_batch += 1
 
-            save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss,
-                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
-
             if train_clstm:
                 save_model(placement_clstm, save_dir, CLSTM_SAVE)
             if train_srnn:
-                save_model(selection_rnn, save_dir, SRNN_SAVE)                            
+                save_model(selection_rnn, save_dir, SRNN_SAVE)       
+
+            save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss,
+                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
 
         epoch_p_loss = epoch_p_loss / len(train_iter)
         epoch_s_loss = epoch_s_loss / len(train_iter)
@@ -540,8 +545,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
                     print("Both validation losses have increased. Stopping early..")
                     break
 
-            save_checkpoint(epoch + 1, 0, best_placement_valid_loss,
-                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
+            save_checkpoint(epoch + 1, 0, best_placement_valid_loss, best_selection_valid_loss, 
+                            train_clstm, train_srnn, save_dir)
 
     # evaluate on test set
     (placement_test_loss, placement_test_acc,
