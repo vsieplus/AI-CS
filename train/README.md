@@ -33,22 +33,23 @@ in DDC, step selection is treated as a language modeling task, where we aim to p
 In particular, at any given frame we can classify the state of an arrow on the dance pad in 4 different ways: Off, On, Held, and Released. For singles where the dance pad uses 5 arrows, the vocabulary size is 4<sup>5</sup> = 1,024.
 For doubles, where all 10 arrows are used, this number grows quite large to 4<sup>10</sup> = 1,048,576.
 While using the entire vocabulary space allows every possible combination of arrows, a significant portion of
-these arrangements are likely never used (e.g. most arrangements of 6+ arrows at a time). For memory and speed
+these arrangements are likely never used (e.g. most arrangements of 5+ arrows at a time). For memory and speed
 optimizations, we decide to truncate the vocabulary for doubles primarily to step arrangements of up to 4 arrows at
-any one time. We do however allow certain exceptions to be considered if they appear in the training data, such as steps
-from charts like Another Truth D17/18, Hi-Bi D20, Achluoias D26, etc. where more than 6 arrows are activated (on, off, or release) at any given time. This gives a base vocab size of
+any one time. We do however allow certain exceptions to be considered if they appear in the training data, 
+such as steps from charts like Another Truth D17/18, Hi-Bi D20, Achluoias D26, etc. where more than 4 arrows are 
+activated (on, off, or release) at any given time. This gives a much smaller base vocab size of
 
-<img src="https://latex.codecogs.com/gif.latex?4%5E%7B10%7D%20-%20%5Csum_%7Bi%20%3D%207%7D%5E%7B10%7D%7B10%5Cchoose%20i%7D%20%5Ccdot%203%5Ei%20%3D%20235%2C012">
+<img src="https://latex.codecogs.com/gif.latex?4%5E%7B10%7D%20-%20%5Csum_%7Bi%3D5%7D%5E%7B10%7D%20%7B10%20%5Cchoose%20i%7D%20%5Ccdot%203%5E%7Bi%7D%20%3D%2020%2C686">
 
 We provide two different step selection models. The first is a LSTM RNN as presented in DDC, which in addition
 takes into account the outputs of the C-LSTM model. Intuitively, this design aims to provide the selection model
 the audio context to help it select a step, as many musical events often coincide with particular step arrangements
 (e.g. accents -> jumps, alternating notes -> drills, etc.). 
 
-The second is an Arrow Transformers, which uses a relative self-attention mechanism. This mechanism enables the model
-to more meaningfully capture long-distance dependencies across entire step sequences. In many human-written step charts,
-elements are often repeated, extended, and built upon throughout the chart. This type of dependency is also present in
-music itself. The architecture is largely similar to the one presented in [Music Transformer](https://arxiv.org/abs/1809.04281). To provide this model with audio context, we
+The second is an Arrow Transformer, which uses a relative self-attention mechanism. This mechanism enables the model
+to more meaningfully capture long-distance dependencies across entire step sequences. In many human-written 
+step charts, elements are often repeated, contrasted, extended, and built upon throughout the chart. This type of 
+dependency is also present in music itself. The architecture is largely similar to the one presented in [Music Transformer](https://arxiv.org/abs/1809.04281). To provide this model with audio context, we
 
 ### Examples
 
