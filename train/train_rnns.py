@@ -243,7 +243,7 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
 
             if do_train:
                 all_targets.append(targets[b, :audio_lengths[b]])
-                b_dists = F.softmax(logits[b, :audio_lengths[b]], dim=-1)
+                b_dists = F.softmax(logits.detach()[b, :audio_lengths[b]], dim=-1)
                 all_scores.append(b_dists[:, 1])
             
             curr_unroll_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
@@ -263,15 +263,16 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
             nn.utils.clip_grad_norm_(clstm.parameters(), max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()
-        
-        predictions = predict_placements(logits, levels, audio_lengths)
+
+        predictions = predict_placements(logits.detach(), levels, audio_lengths)
         total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
         total_loss += loss.item()
 
     # pad clstm_hiddens across batch examples
     # [batch, [step_sequence_length(variable), hidden]] -> [batch, max_step_sequence_length, hidden]
     clstm_hiddens = [torch.cat(hiddens_seq, dim=0) for hiddens_seq in clstm_hiddens]
-    clstm_hiddens = pad_sequence(clstm_hiddens, batch_first=True, padding_value=0)
+    clstm_hiddens_padded = pad_sequence(clstm_hiddens, batch_first=True, padding_value=0)
+    clstm_hiddens.clear()
 
     if do_train:
         targets = torch.cat(all_targets, dim=0)
@@ -282,7 +283,7 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
 
         writer.add_pr_curve('placement_pr_curve', targets, scores, curr_train_epoch)
 
-    return total_loss / num_unrollings, total_accuracy / num_unrollings, clstm_hiddens
+    return total_loss / num_unrollings, total_accuracy / num_unrollings, clstm_hiddens_padded
 
 def get_selection_accuracy(logits, targets, seq_lengths, step):
     # [batch, vocab_size]
@@ -433,13 +434,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
     #placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
 
-    ## TODO figure out vocab expansion + addition of outlier tokens
-    vocab_size = SELECTION_VOCAB_SIZES[dataset_type] + len(dataset.outliers)
-
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
-                                 vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
+                                 dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
     selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
-
+    #selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR)
+    
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
     best_selection_valid_loss = float('inf')
@@ -474,8 +473,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_p_loss = 0
         epoch_s_loss = 0
         curr_epoch_batch = 0
-        # TODO find why extra set of grads is being stored for placement clstm
-        # report_memory(device=device, show_tensors=True)
+        #report_memory(device=device, show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
             # if resuming from checkpoint, skip batches until starting batch for the epoch
@@ -577,6 +575,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
 
     with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
+
+    # save special tokens for dataset vocabulary if needed
+    if dataset.special_tokens:
+        with open(os.path.join(save_dir, 'special_tokens.json'), 'w') as f:
+            f.write(json.dumps(dataset.special_tokens, indent=2))
 
 def log_training_stats(writer, dataset, summary_json):
     summary_json = {

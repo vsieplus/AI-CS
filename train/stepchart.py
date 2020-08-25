@@ -5,6 +5,7 @@ import math
 import os
 import re
 
+import rpy2.robjects as robj
 import torch
 from torch.utils.data import Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
@@ -21,11 +22,16 @@ from util import convert_chartframe_to_melframe
 ABS_PATH = str(Path(__file__).parent.absolute())
 CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
 
+R_CHART_UTIL_PATH = os.path.join(ABS_PATH, '..', 'shiny', 'util.R')
+
 memory = Memory(CACHE_DIR, verbose=0, compress=True)
 # to reset cache: memory.clear(warn=False)
 
 # add caching to extract_audio_feats
 extract_audio_feats = memory.cache(extract_audio_feats)
+
+# import chart util functions from r script
+robj.r.source(R_CHART_UTIL_PATH)	
 
 # returns splits of the given (torch) dataset; assumes 3 way split
 def get_splits(dataset):
@@ -128,22 +134,20 @@ class StepchartDataset(Dataset):
 
 		self.n_unique_songs = 0
 
-		# load the actual training samples
-		self.load_charts(metadata['json_fps'])
+		self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type]
+		self.special_tokens = {} # track special tokens in this dataset (idx -> ucs step (str))
+
+		# store the file paths and chart_indices to load
+		self.chart_ids = self.filter_charts(metadata['json_fps'])
 		self.print_summary()
 		self.compute_stats()
 
-		# gather 'outlier' steps (to add to vocab)
-		self.outliers = set()
-		for chart in self.charts:
-			for outlier in chart.outliers:
-				self.outliers.add(outlier)
-
 	def __len__(self):
-		return len(self.charts)
+		return len(self.chart_ids)
 
 	def __getitem__(self, idx):
-		return self.charts[idx]
+		chart_fp, chart_idx, permutation = self.chart_ids[idx]
+		return self.load_chart(chart_fp, chart_idx, permutation)
 
 	def print_summary(self):
 		print(f'Dataset name: {self.name}')
@@ -157,49 +161,63 @@ class StepchartDataset(Dataset):
 		print(f'Chart Permutations: {self.permutations}')
 
 	def compute_stats(self):
+		# load once at start to compute overall stats + cache tensors
+		charts = [self.__getitem__(idx) for idx in range(len(self.chart_ids))]
+
 		self.n_unique_charts = self.__len__() // len(self.permutations)
-		self.n_steps = sum([chart.n_steps for chart in self.charts])
+		self.n_steps = sum([chart.n_steps for chart in charts])
 		self.n_audio_hours = sum([song.n_minutes for song in self.songs.values()]) / 60
 
 		if not self.step_artists:
 			self.step_artists = set()
-			for chart in self.charts:
+			for chart in charts:
 				self.step_artists.add(chart.step_artist)
 
-		steps_per_second = [chart.steps_per_second for chart in self.charts]
+		steps_per_second = [chart.steps_per_second for chart in charts]
 		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
 
-	# filter/load charts
-	def load_charts(self, json_fps):
-		print('Loading charts...')
+	# filter charts to include in the dataset; store path to json + chart index num.
+	def filter_charts(self, json_fps):
 		self.songs = {}
-		self.charts = []
-		for fp in tqdm(json_fps):
+		chart_ids = []
+
+		for fp in json_fps:
 			with open(fp, 'r') as f:
 				attrs = json.loads(f.read())
 			
 			# check attrs for each chart to see if we should add it to the dataset
 			chart_indices = self.filter_charts(attrs)
 
-			if not chart_indices:
-				continue
+			if chart_indices:
+				# create new song if needed
+				song_path = attrs['music_fp']
+				if song_path not in self.songs:
+					self.songs[song_path] = Song(song_path, attrs['title'], attrs['artist'],
+						  						 attrs['genre'], attrs['songtype'])
+					self.n_unique_songs += 1
 
-			# .ssc (may contain multiple charts/same song) or .ucs (always 1 chart)    
-			orig_filetype = attrs['chart_fp'].split('.')[-1]
+				for chart_idx in chart_indices:
+					for permutation in self.permutations:
+						chart_ids.append((fp, chart_idx, permutation))
 
-			# create new song if needed
-			song_path = attrs['music_fp']
-			if song_path not in self.songs:
-				self.songs[song_path] = Song(song_path, attrs['title'], attrs['artist'],
-											 attrs['genre'], attrs['songtype'])
-				self.n_unique_songs += 1
+		print('Done filtering!')
+		return chart_ids
 
-			for chart_idx in chart_indices:
-				for permutation in self.permutations:
-					self.charts.append(Chart(attrs['charts'][chart_idx], self.songs[song_path],
-											 orig_filetype, permutation))
-		
-		print('Done loading!')
+	def load_chart(self, chart_json_fp, chart_idx, permutation):
+		with open(json_fp, 'r') as f:
+			attrs = json.loads(f.read())
+
+		# .ssc (may contain multiple charts/same song) or .ucs (always 1 chart)    
+		orig_filetype = attrs['chart_fp'].split('.')[-1]
+
+		song_path = attrs['music_fp']
+
+		chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path],
+					   orig_filetype, permutation, self.special_tokens)
+
+		self.vocab_size += chart.n_special_tokens
+
+		return chart
 	
 	def filter_charts(self, attrs):
 		""" determine which charts in the given attrs belongs in this dataset
@@ -267,77 +285,58 @@ STEP_PATTERNS = {
 	'ssc': re.compile('[1-3]')
 }
 
-UCS_SSC_DICT = {
-	'.': '0',   # no step
-	'X': '1',   # normal step
-	'M': '2',   # start hold
-	'H': '0',   # hold (0 between '2' ... '3' in ssc)
-	'W': '3',   # release hold
+# UCS_SSC_DICT = {
+# 	'.': '0',   # no step
+# 	'X': '1',   # normal step
+# 	'M': '2',   # start hold
+# 	'H': '0',   # hold (0 between '2' ... '3' in ssc)
+# 	'W': '3',   # release hold
+# }
+
+# symbols used in step representation
+UCS_STATE_DICT = {
+	'.': 0,		# off
+	'X': 1,		# on
+	'M': 1,		# on
+	'H': 2,		# held
+	'W': 3		# released
 }
-
-# symbols used in our representation
-SSC_OFF_SYMBOL = 0		# step is not activated
-SSC_STEP_SYMBOL = 1		# there is a lone step, or a start of a hold
-SSC_HOLD_SYMBOL = 2		# the step is currently being held down
-SSC_RELEASE_SYMBOL = 3	# the step is released (end of a hold)
-SSC_NUM_SYMBOLS = 4
-
-# convert ucs steps to ssc (text)
-@memory.cache
-def ucs_to_ssc(steps):
-	ssc_steps = ''
-	for note in steps:
-		ssc_steps += UCS_SSC_DICT[note]
-	return ssc_steps
 
 # convert a sequence of steps ['00100', '10120', ...] -> input tensor
 @memory.cache
 def sequence_to_tensor(sequence):
 	# shape [abs # of frames, 4 x # arrows (20 for single, 40 for double)]
 	#   (for each arrow, mark 1 of 4 possible states - off, step, hold, release)
+	#	(should be already converted to UCS notation)
 	# eg. ['10002', '01003'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
 	#                             -downleft-   -upleft- ....   -downright-
 	#                            [0, 0, 0, 0, 0, 1, 0, 0, ..., 0, 0, 0, 1]]
 	step_tensors = []
-	hold_indices = set()   # track active holds; for ssc, a '0' between '2' ... '3' is a hold
 
-	if not sequence:
-		return
-
-	num_steps = len(sequence[-1])
+	num_steps = len(sequence[0])
 
 	for step in sequence:
-		#print(step)
-		step_list = [int(symbol) for symbol in step]
-
 		symbol_tensors = []
-		for i, symbol in enumerate(step_list):            
-			# treat hold starts ('2') as steps ('1'),
-			if symbol == SSC_HOLD_SYMBOL:
-				hold_indices.add(symbol)
-				step_list[i] = SSC_STEP_SYMBOL
-			elif i in hold_indices:
-				if symbol == SSC_RELEASE_SYMBOL and symbol in hold_indices:
-					hold_indices.remove(symbol)
-				# treat hold states ('0' between '2'..'3') as holds ('2')
-				elif symbol == SSC_OFF_SYMBOL:
-					step_list[i] = SSC_HOLD_SYMBOL
-
-			symbol_tensors.append(torch.zeros(SSC_NUM_SYMBOLS).scatter_(0, torch.tensor(symbol), 1))
+		for i, symbol in enumerate(step):
+			arrow_i_state = torch.zeros(NUM_ARROW_STATES)
+			arrow_i_state[UCS_STATE_DICT[symbol]] = 1
+			symbol_tensors.append(arrow_i_state)
 
 		# convert symbols -> concatenated one hot encodings
 		step_tensors.append(torch.cat(symbol_tensors))
 
-	return torch.cat(step_tensors).view(-1, SSC_NUM_SYMBOLS * num_steps)
+	return torch.cat(step_tensors).view(-1, NUM_ARROW_STATES * num_steps)
 
 @memory.cache
 def permute_steps(steps, chart_type, permutation_type, filetype):
 	# permutation numbers signify moved location of original step
 	#   ex) steps = '10010'
 	#       permt = '43210' -> (flip horizontally)
-	#    newsteps = '01001'            
-	if filetype == 'ucs':
-		steps = ucs_to_ssc(steps)
+	#    newsteps = '01001'
+
+	# use UCS notation for less ambiguity
+	if filetype == 'ssc':
+		steps = robj.r.convertToUCS(step_sequence)
 	
 	if not permutation_type:
 		return steps
@@ -368,19 +367,23 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
 
 	return step_placement_frames, step_sequence
-	
-def step_sequence_to_targets(step_input, step_sequence, chart_type):
+
+@memory.cache
+def step_sequence_to_targets(step_input, step_sequence, chart_type, special_tokens):
 	"""
 	given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
 		in: step_input - shape [seq length, chart_features], tensor representations of (nonempty) steps
-			step_sequence - shape [seq length] - original string representation of step sequence
+			step_sequence - shape [seq length] - original [ucs] string representations of step sequence
+			chart_type - 'pump-single' or 'pump-double'
+			special_tokens - predefined special token indices/values in the chart's dataset,
+							 use for doubles charts with 5+ activated arrows at a time
 		out: targets - shape [seq length], values in range [0, vocab size - 1]
 	"""
 	num_arrows = len(step_sequence[0])
-	outliers = {}	# for doubles charts, consider steps with 5+ activated arrows as outliers
-					# dict 'index -> 
-
 	targets = torch.zeros(step_input.size(0), dtype=torch.long)
+	n_special_tokens = 0
+
+	assert(step_input.size(0) == len(step_sequence))
 
 	for s in range(step_input.size(0)):
 		# index in order of: num active arrows [1, ..., num_arrows - 1] (ignore 0)
@@ -391,7 +394,6 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type):
 		#				SUM_{i' < i} ... SUM_{j' < j} 3 ^ num_active +
 		#				SUM_{x1, .., x_num_active} (x_i - 1) * 3 ^ i (base 3 R -> L)
 		#	[i' = first index L->R, i = true first index, j', j = zth index, z = num active arrows]
-		#				
 		idx = 0
 
 		active_arrow_states = []
@@ -406,11 +408,13 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type):
 
 		num_active_arrows = len(active_arrow_indices)
 
-		# if num active exceed maximum, add as an outlier
+		# if num active exceed maximum, add to end of special tokens
 		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
-			#outliers.append(step)
-			#targets[s] = SELECTION_VOCAB_SIZES[chart_type]
-			## TODO figure out target/vocab size modification for outliers
+			curr_step = step_sequence[s]
+			if curr_step not in special_tokens.values():
+				new_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens) - 1
+				special_tokens[new_idx] = curr_step
+				n_special_tokens += 1
 			continue
 
 		for num_active in range(num_active_arrows):
@@ -431,8 +435,9 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type):
 
 		targets[s] = idx
 
-	return targets, outliers
+	return targets, n_special_tokens
 
+@memory.cache
 def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
 	placement_target = torch.zeros(audio_length, dtype=torch.long)
@@ -457,8 +462,7 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""
-
-	def __init__(self, chart_attrs, song, filetype, permutation_type=None):
+	def __init__(self, chart_attrs, song, filetype, permutation_type, special_tokens):
 		self.song = song
 		self.filetype = filetype
 
@@ -491,7 +495,9 @@ class Chart:
 													  	self.song.sample_rate)
 
 		self.step_sequence = sequence_to_tensor(step_sequence)
-		self.step_targets, self.outliers = step_sequence_to_targets(self.step_sequence, step_sequence, self.chart_type)
+		(self.step_targets,
+		 self.n_special_tokens) = step_sequence_to_targets(self.step_sequence, step_sequence, 
+		 												   self.chart_type, special_tokens)
 
 		# ignore steps in sequence after song has ended
 		# (make sure length matches num of placement targets)
