@@ -37,7 +37,7 @@ these arrangements are likely never used (e.g. most arrangements of 5+ arrows at
 optimizations, we decide to truncate the vocabulary for doubles primarily to step arrangements of up to 4 arrows at
 any one time. We do however allow certain exceptions to be considered if they appear in the training data, 
 such as steps from charts like Another Truth D17/18, Hi-Bi D20, Achluoias D26, etc. where more than 4 arrows are 
-activated (on, off, or release) at any given time. This gives a much smaller base vocab size of
+activated (on, off, or release) at any given time. In this case, these special tokens are appended to the base vocabulary. Altogether this gives a much smaller base vocab size of
 
 <img src="https://latex.codecogs.com/gif.latex?4%5E%7B10%7D%20-%20%5Csum_%7Bi%3D5%7D%5E%7B10%7D%20%7B10%20%5Cchoose%20i%7D%20%5Ccdot%203%5E%7Bi%7D%20%3D%2020%2C686">
 
@@ -49,7 +49,7 @@ the audio context to help it select a step, as many musical events often coincid
 The second is an Arrow Transformer, which uses a relative self-attention mechanism. This mechanism enables the model
 to more meaningfully capture long-distance dependencies across entire step sequences. In many human-written 
 step charts, elements are often repeated, contrasted, extended, and built upon throughout the chart. This type of 
-dependency is also present in music itself. The architecture is largely similar to the one presented in [Music Transformer](https://arxiv.org/abs/1809.04281). To provide this model with audio context, we
+dependency is also present in music itself. The architecture is largely similar to the one presented in [Music Transformer](https://arxiv.org/abs/1809.04281). To provide this model with audio context, we ___
 
 ### Examples
 
@@ -65,7 +65,10 @@ python train_rnns.py --dataset_name=test_dataset
 # another placement model from scratch
 python train_transformer.py --dataset_name=test_dataset 
 
-
 # visualize training stats/metrics (requires tensorboard)
 tensorboard --logdir=models/test_dataset/runs
+
+# To resume training if interrupted (use --retrain to start from epoch 0
+# but still load existing parameters)
+python train_rnns.py --load_checkpoint='models/test_dataset'
 ```

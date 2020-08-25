@@ -433,9 +433,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
     #placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
 
+    ## TODO figure out vocab expansion + addition of outlier tokens
+    vocab_size = SELECTION_VOCAB_SIZES[dataset_type] + len(dataset.outliers)
+
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
-                                 SELECTION_VOCAB_SIZES[dataset_type], HIDDEN_SIZE,
-                                 SELECTION_HIDDEN_WEIGHT).to(device)
+                                 vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
     selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
 
     # load model, optimizer states if resuming training

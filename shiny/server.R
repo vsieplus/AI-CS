@@ -75,6 +75,6 @@ server <- function(input, output, session) {
 }
 
 # to deploy to shinyapps.io
-# setwd("C:/Users/Ryan/Documents/gmdev/projects/AICS/AICS/shiny")
+# setwd("where this file is located"")
 # library(rsconnect)
 # deployApp(appdir) -> login to shinyapps
