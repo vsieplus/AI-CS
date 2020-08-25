@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
         chart_difficulties=[],
         min_difficulty=1,
         max_difficulty=28,
-        permutations=PERMUTATION_LIST
+        permutations=[]
     )
     
     return parser.parse_args()
