@@ -1,0 +1,24 @@
+This folder shall contain all the step chart data to be used and processed.
+
+The structure should look like:
+
+dataset/
+    json/
+        pack1/
+            pack1_song1.json
+            pack1_song2.json
+            ...
+        pack2/
+    raw/
+        pack1/
+            song1/
+                song1.mp3
+                song1.ssc
+            song2/
+            ...
+        pack2/
+        ...
+    subsets/
+        dataset1.json
+        dataset2.json
+    00_ucs_metadata.json (if scraping from ucs site)

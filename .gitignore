@@ -1,4 +1,6 @@
-data/dataset/*
+data/dataset/raw/*
+data/dataset/json/*
+data/dataset/subsets/*
 *.zip
 *__pycache__*
 *.dataset_cache*
