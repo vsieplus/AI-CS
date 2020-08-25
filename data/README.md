@@ -86,7 +86,7 @@ you may rerun the script, which will overwrite old json files with new ones.
 
 To specify a custom subset of charts you can create a dataset, comprised of potentially multiple packs.
 This is done by calling `processing/build_dataset.py --dataset_name=name` which takes various filtering 
-parameters, which include difficulty levels, chart type (single/double), song bpm, song type (arcade/remix/...) 
+parameters, which include difficulty levels, chart type (single/double), song type (arcade/remix/...) 
 and more. You may customize these parameters to build your own datasets (call `-h` for more details). This 
 script will ask you which packs to choose songs and charts from as the initial layer of filtering.
 
