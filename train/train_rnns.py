@@ -473,7 +473,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_p_loss = 0
         epoch_s_loss = 0
         curr_epoch_batch = 0
-        #report_memory(device=device, show_tensors=True)
+        report_memory(device=device, show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
             # if resuming from checkpoint, skip batches until starting batch for the epoch
@@ -616,6 +616,10 @@ def log_training_stats(writer, dataset, summary_json):
 
     return summary_json
 
+def get_dataloader(dataset):
+    return DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_charts,
+                      shuffle=True, num_workers=4)
+
 def main():
     args = parse_args()
 
@@ -628,9 +632,9 @@ def main():
     dataset_type = dataset.chart_type
 
     train_data, valid_data, test_data = get_splits(dataset)
-    train_iter = DataLoader(train_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
-    valid_iter = DataLoader(valid_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
-    test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, collate_fn=collate_charts, shuffle=True)
+    train_iter = get_dataloader(train_data)
+    valid_iter = get_dataloader(valid_data)
+    test_iter = get_dataloader(test_data)
 
     datasets_size_str = (f'Total charts in dataset: {len(dataset)}\nTrain: {len(train_data)}, '
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')

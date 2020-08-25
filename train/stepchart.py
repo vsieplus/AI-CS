@@ -138,7 +138,7 @@ class StepchartDataset(Dataset):
 		self.special_tokens = {} # track special tokens in this dataset (idx -> ucs step (str))
 
 		# store the file paths and chart_indices to load
-		self.chart_ids = self.filter_charts(metadata['json_fps'])
+		self.chart_ids = self.filter_fps(metadata['json_fps'])
 		self.print_summary()
 		self.compute_stats()
 
@@ -177,7 +177,7 @@ class StepchartDataset(Dataset):
 		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
 
 	# filter charts to include in the dataset; store path to json + chart index num.
-	def filter_charts(self, json_fps):
+	def filter_fps(self, json_fps):
 		self.songs = {}
 		chart_ids = []
 
@@ -204,7 +204,7 @@ class StepchartDataset(Dataset):
 		return chart_ids
 
 	def load_chart(self, chart_json_fp, chart_idx, permutation):
-		with open(json_fp, 'r') as f:
+		with open(chart_json_fp, 'r') as f:
 			attrs = json.loads(f.read())
 
 		# .ssc (may contain multiple charts/same song) or .ucs (always 1 chart)    
