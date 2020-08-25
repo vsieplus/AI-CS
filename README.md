@@ -13,31 +13,27 @@ custom step charts from audio. This project was inspired by [Dance Dance Convolu
 
 ## Getting started
 
-If you are mainly interested in generating a stepchart, you can try out some  of the pretrained models at the shiny web 
-app  [here](https://vsie.shinyapps.io/ai_custom_step). Simply upload audio and select the type
-of chart you'd like, and it will generate a chart for you! There are also some useful
-visualization tools to try to help you see what's going on under the hood. Also be sure 
-to check out our [twitter page](https://twitter.com/piu_aics), where we'll share some 
-generated charts periodically.
+If you are mainly interested in generating a stepchart, you can try out some  of the pretrained models at 
+the shiny web app [here](https://vsie.shinyapps.io/ai_custom_step). Simply upload an audio file, select the
+type of chart you'd like, and it will generate a chart for you! There are also some useful visualization tools available.
 
 If you are interested in trying to train your own models, or learning how the project works you can
 continue reading below. A quick way to get started is to setup a [conda](https://docs.conda.io/en/latest/) environment and install the project dependencies as below. 
 
 ```bash
-conda create -n aics
+conda create --name aics --file requirements.txt
 conda activate aics
-pip install -r requirements.txt
 ```
 
 The pipeline for training a model and then using it to generate charts can be summarized as follows:
 
-1) Use the scripts in `data/` to retrieve, extract, and process a particular collection of chart data for model training.
+1. Use the scripts in `data/` to retrieve, extract, and process a particular collection of chart data for model training.
 
-2) Pass the specified dataset information to the training process in `train/train.py` to train a set of custom models.
+2. Use a specified dataset to train a pair of models in `train/`.
 
-3) After training is complete, used the saved models to generate new charts using `generate/generate.py`
+3. After training is complete, use the saved models to generate and save new charts in `generate/`
 
-Each step in turn consists of various sub-processes, so each directory itself has a README with further details.
+Each step consists of various sub-processes, so each directory itself has a README with further details.
 
 ### Issues/bugs
 

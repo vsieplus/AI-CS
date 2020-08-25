@@ -55,7 +55,7 @@ getModelSummary <- function(modelPath) {
   }
 }
 
-# generate a chart; return a list with the relevant args.
+# generate a chart; return a list with the generated notes + chart metadata
 generateChart <- function(audioPath, modelPath, level, chartType,
                           title, artist, bpm, saveFormats) {
   chartData <-  list('title' = title, 'artist' = artist, 'bpm' = bpm,
