@@ -15,7 +15,7 @@ given specified intervals. We follow DDC's standard of using 10ms timesteps. Tha
 interval in an audio file, the step placement task must determine whether or not a step should be placed
 there. Because level difficulties and other features may also play a role in step placement, this
 information is also used to help the models perform this task. The process for step placement is similar to
-the one presented in DDC (sections 4.2/4.3 [here] (https://arxiv.org/pdf/1703.06891.pdf)), with a few modifications:
+the one presented in DDC (sections 4.2/4.3 [here](https://arxiv.org/pdf/1703.06891.pdf)), with a few modifications:
 
 1. In addition to concatenating one-hot representations of chart level, we concatenate one-hot representations
    of chart type (single or double) as well, to represent the difference in chart densities between singles and
