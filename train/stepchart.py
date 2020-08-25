@@ -136,7 +136,8 @@ class StepchartDataset(Dataset):
 		# gather 'outlier' steps (to add to vocab)
 		self.outliers = set()
 		for chart in self.charts:
-			self.outliers.add(outlier for outlier in chart.outliers)
+			for outlier in chart.outliers:
+				self.outliers.add(outlier)
 
 	def __len__(self):
 		return len(self.charts)
@@ -407,8 +408,8 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type):
 
 		# if num active exceed maximum, add as an outlier
 		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
-			outliers.append(step)
-			targets[s] = SELECTION_VOCAB_SIZES[chart_type]
+			#outliers.append(step)
+			#targets[s] = SELECTION_VOCAB_SIZES[chart_type]
 			## TODO figure out target/vocab size modification for outliers
 			continue
 

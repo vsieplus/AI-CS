@@ -103,8 +103,8 @@ def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
         train_srnn = checkpoint['train_srnn']
 
         # use last directory under save_dir/runs
-        logdirs = [os.path.join(save_dir, 'runs', o) for o in os.listdir(os.path.join(save_dir, 'runs'))]
-        sub_logdir = [d for d in logdirs if os.path.isdir(d)][-1]
+        logdirs = [d for d in os.listdir(os.path.join(save_dir, 'runs'))]
+        sub_logdir = [d for d in logdirs if os.path.isdir(os.path.join(save_dir, 'runs', d))][-1]
 
         return (start_epoch, start_epoch_batch, best_placement_valid_loss, 
                 best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
@@ -447,7 +447,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     start_epoch_batch = 0
     train_clstm = True
     train_srnn = True
-    sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M'))
+    sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M')
   
     if load_checkpoint:
         checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn, device)
