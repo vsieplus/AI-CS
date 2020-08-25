@@ -16,6 +16,7 @@ from util import get_subdirs, ez_name
 ABS_PATH = Path(__file__).parent.absolute()
 DEFAULT_OUT_PATH = os.path.join(str(ABS_PATH), '../dataset/json')
 
+UCS_PACKNAME = '00-UCS_BASE'
 CHART_TYPES = ['ucs', 'ssc']
 
 def parse_args() -> argparse.Namespace:
@@ -128,6 +129,9 @@ def main():
     pack_names_clean = set()
 
     for pack_name in pack_names:
+        if pack_name == UCS_PACKNAME:
+            continue
+
         pack_name_clean = ez_name(pack_name)
         if pack_name_clean in pack_names_clean:
             raise ValueError('pack name conflict: {}'.format(pack_name_clean))

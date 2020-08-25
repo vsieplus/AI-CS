@@ -19,6 +19,7 @@ PERMUTATION_LIST = ['flip', 'mirror', 'flip_mirror']
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset_name', type=str, required=True, help='Dataset name')
     parser.add_argument('--json_dir', type=str, help='Input JSON dir')
     parser.add_argument('--datasets_dir', type=str, help='Dir to output file containing dataset info')
     
@@ -69,8 +70,7 @@ def display_args(args):
 
 def main():
     args = parse_args()
-    dataset_name = input('Please enter a name for this dataset: ')
-    dataset_name = ez_name(dataset_name)
+    dataset_name = ez_name(args.dataset_name)
 
     if not os.path.isdir(args.datasets_dir):
         os.makedirs(args.datasets_dir)
