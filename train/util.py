@@ -40,7 +40,7 @@ def report_memory(device, show_tensors=False):
             if torch.is_tensor(obj) and device.type == obj.device.type: 
                 print(type(obj), obj.size(), f'requires_grad: {obj.requires_grad}')
                 if(obj.size() == torch.Size([2])):
-                    print(obj.data)
+                    print(obj)
         print('\n')
 
 def convert_chartframe_to_melframe(frame, sample_rate, hop_length=HOP_LENGTH, chart_frame_rate=CHART_FRAME_RATE):
