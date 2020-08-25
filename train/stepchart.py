@@ -1,19 +1,20 @@
 # utility classes for loading step charts
 
 import json
+import math
 import os
 import re
 
-from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
-
+from tqdm import tqdm
 from pathlib import Path
 from joblib import Memory
 
 from extract_audio_feats import extract_audio_feats, load_audio
-from hyper import HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES
+from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, 
+				   NUM_ARROW_STATES, MAX_ACTIVE_ARROWS, SELECTION_VOCAB_SIZES)
 from util import convert_chartframe_to_melframe
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
@@ -64,7 +65,7 @@ def collate_charts(batch):
 		# transpose channels/timestep so timestep comes first for pad_sequence()
 		audio_feats.append(chart.get_audio_feats().transpose(0, 1))
 		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
-		placement_targets.append(chart.placement_target)
+		placement_targets.append(chart.placement_targets)
 
 		levels.append(chart.level)
 
@@ -132,6 +133,11 @@ class StepchartDataset(Dataset):
 		self.print_summary()
 		self.compute_stats()
 
+		# gather 'outlier' steps (to add to vocab)
+		self.outliers = set()
+		for chart in self.charts:
+			self.outliers.add(outlier for outlier in chart.outliers)
+
 	def __len__(self):
 		return len(self.charts)
 
@@ -160,7 +166,7 @@ class StepchartDataset(Dataset):
 				self.step_artists.add(chart.step_artist)
 
 		steps_per_second = [chart.steps_per_second for chart in self.charts]
-		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second) 
+		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
 
 	# filter/load charts
 	def load_charts(self, json_fps):
@@ -360,29 +366,71 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 		if step_this_frame:
 			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
 
-	return step_placement_frames, sequence_to_tensor(step_sequence)
-
-def step_sequence_to_targets(step_sequence):
-	"""given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
-		in: step_sequence - shape [seq_length, chart_features]
-		out: targets - shape [seq_length], values in range [0, vocab size - 1] U [pad_idx]
+	return step_placement_frames, step_sequence
+	
+def step_sequence_to_targets(step_input, step_sequence, chart_type):
 	"""
-	num_arrows = step_sequence.size(1) // NUM_ARROW_STATES
-	targets = torch.zeros(step_sequence.size(0), dtype=torch.long)
+	given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
+		in: step_input - shape [seq length, chart_features], tensor representations of (nonempty) steps
+			step_sequence - shape [seq length] - original string representation of step sequence
+		out: targets - shape [seq length], values in range [0, vocab size - 1]
+	"""
+	num_arrows = len(step_sequence[0])
+	outliers = {}	# for doubles charts, consider steps with 5+ activated arrows as outliers
+					# dict 'index -> 
 
-	for s in range(step_sequence.size(0)):
+	targets = torch.zeros(step_input.size(0), dtype=torch.long)
+
+	for s in range(step_input.size(0)):
+		# index in order of: num active arrows [1, ..., num_arrows - 1] (ignore 0)
+		# 				  -> arrow indices [0, ..., num_arrows - 1] x num_active_arrows
+		#				  -> arrow states [1, ..., num_arrow_states - 1] (ignore off)
+
+		# step_index =  SUM_{k=0->num_active - 1} (num_arrows choose k) * 3 ^ k +
+		#				SUM_{i' < i} ... SUM_{j' < j} 3 ^ num_active +
+		#				SUM_{x1, .., x_num_active} (x_i - 1) * 3 ^ i (base 3 R -> L)
+		#	[i' = first index L->R, i = true first index, j', j = zth index, z = num active arrows]
+		#				
 		idx = 0
 
-		# step_index = SUM(i=0->?)[step[i] * (4^i)] (Base 4 L->R); ? = total arrows
-		for i in range(num_arrows):
-			start = (i * NUM_ARROW_STATES)
-			curr_idx = (step_sequence[s, start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
+		active_arrow_states = []
+		active_arrow_indices = []
+		for i in range(step_input.size(1) // NUM_ARROW_STATES):
+			start = i * NUM_ARROW_STATES
+			arrow_state = (step_input[s, start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
 
-			idx += curr_idx * (NUM_ARROW_STATES ** i)
+			if arrow_state != 0:
+				active_arrow_indices.append(i)
+				active_arrow_states.append(arrow_state)
+
+		num_active_arrows = len(active_arrow_indices)
+
+		# if num active exceed maximum, add as an outlier
+		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
+			outliers.append(step)
+			targets[s] = SELECTION_VOCAB_SIZES[chart_type]
+			## TODO figure out target/vocab size modification for outliers
+			continue
+
+		for num_active in range(num_active_arrows):
+			idx += math.comb(num_arrows, num_active) * (3 ** num_active)
+
+		first_possible_idx = 0
+		for arrow_idx in active_arrow_indices:
+			if arrow_idx > first_possible_idx:
+				for j in range(arrow_idx):
+					idx += 3 ** num_active_arrows * (num_arrows - j - 1)
+			
+			first_possible_idx = arrow_idx + 1
+		
+		# base 3 R -> L
+		active_arrow_states.reverse()
+		for a, state in enumerate(active_arrow_states):
+			idx += (state - 1) * (3 ** a)
 
 		targets[s] = idx
 
-	return targets
+	return targets, outliers
 
 def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
@@ -432,18 +480,22 @@ class Chart:
 
 		self.permutation_type = permutation_type
 
-		self.step_placement_frames, self.step_sequence = parse_notes(chart_attrs['notes'], self.chart_type,
-																	 self.permutation_type, self.filetype)
-		self.step_targets = step_sequence_to_targets(self.step_sequence)
+		(step_placement_frames, step_sequence) = parse_notes(chart_attrs['notes'], self.chart_type,
+														     self.permutation_type, self.filetype)
 
-		(self.placement_target,
-		 self.first_frame, self.last_frame) = placement_frames_to_targets(self.step_placement_frames,
-										   								  self.song.audio_feats.size(1),
-													  					  self.song.sample_rate)
+		(self.placement_targets,
+		 self.first_frame, 
+		 self.last_frame) = placement_frames_to_targets(step_placement_frames,
+		  			   								    self.song.audio_feats.size(1),
+													  	self.song.sample_rate)
+
+		self.step_sequence = sequence_to_tensor(step_sequence)
+		self.step_targets, self.outliers = step_sequence_to_targets(self.step_sequence, step_sequence, self.chart_type)
+
 		# ignore steps in sequence after song has ended
 		# (make sure length matches num of placement targets)
-		self.step_sequence = self.step_sequence[:self.placement_target.sum()]
-		self.step_targets = self.step_targets[:self.placement_target.sum()]
+		self.step_sequence = self.step_sequence[:self.placement_targets.sum()]
+		self.step_targets = self.step_targets[:self.placement_targets.sum()]
 
 		self.n_steps = self.step_sequence.size(0)
 		self.steps_per_second = self.n_steps / (self.song.n_minutes * 60)

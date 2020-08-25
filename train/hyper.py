@@ -1,5 +1,6 @@
 # various constants/hyperparameters
 
+import math
 from torch.nn import CrossEntropyLoss
 
 SEED = 1949
@@ -54,19 +55,24 @@ SELECTION_UNROLLING_LEN = 64
 #   3 - RELEASE (hold)
 NUM_ARROW_STATES = 4
 
-# vocabulary mapping (base 4 L->R)
-#   step -> features (dim 20) -> index  [assume indexing start at 1]
-#   step_index = SUM(i=0->4)[step[i] * (4^i)]
-#   ex) '01021' -> 0 + (1 * 4) + (0 * 4^2) + (2 * 4^3) + (1 * 4^4) 
+# vocabulary mapping (indexing by # of activated arrows + states L -> R)
+# (see stepchart.py, step_sequence_to_targets())
 #   0 < index < vocab-size - 1, 
 SELECTION_VOCAB_SIZES = {
     'pump-single': NUM_ARROW_STATES ** 5,   # 1024 possible states
-    'pump-double': NUM_ARROW_STATES ** 10,  # 1,048,576 (if unbounded) -> limit?
-}
+    
+    # 1,048,576 - SUM_(i=5->10) [(10 choose i) * (3 ^ i)] ~ 20,686
+    'pump-double': NUM_ARROW_STATES ** 10 - sum([math.comb(10, i) * (3 ** i) for i in range(5, 11)]),
+} 
 
 SELECTION_INPUT_SIZES = {
-    'pump-single': NUM_ARROW_STATES * 5,    # 20 element vector
-    'pump-double': NUM_ARROW_STATES * 10,   # 40 element vector
+    'pump-single': NUM_ARROW_STATES * 5,    # 20 element vector / 4 per arrow
+    'pump-double': NUM_ARROW_STATES * 10,   # 40 element vector / ^^^^
+}
+
+MAX_ACTIVE_ARROWS = {
+    'pump-single': 5,
+    'pump-double': 4
 }
 
 CHECKPOINT_SAVE = 'checkpoint.tar'
