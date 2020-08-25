@@ -102,8 +102,12 @@ def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
         train_clstm = checkpoint['train_clstm']
         train_srnn = checkpoint['train_srnn']
 
+        # use last directory under save_dir/runs
+        logdirs = [os.path.join(save_dir, 'runs', o) for o in os.listdir(os.path.join(save_dir, 'runs'))]
+        sub_logdir = [d for d in logdirs if os.path.isdir(d)][-1]
+
         return (start_epoch, start_epoch_batch, best_placement_valid_loss, 
-                best_selection_valid_loss, train_clstm, train_srnn)
+                best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
     else:
         return None
 
@@ -432,7 +436,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
                                  SELECTION_VOCAB_SIZES[dataset_type], HIDDEN_SIZE,
                                  SELECTION_HIDDEN_WEIGHT).to(device)
-    selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR, momentum=0.9)
+    selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
 
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
@@ -441,14 +445,15 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     start_epoch_batch = 0
     train_clstm = True
     train_srnn = True
-    
+    sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M'))
+  
     if load_checkpoint:
         checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn, device)
         if checkpoint:
             (start_epoch, start_epoch_batch, best_placement_valid_loss, 
-             best_selection_valid_loss, train_clstm, train_srnn) = checkpoint
+             best_selection_valid_loss, train_clstm, train_srnn, sub_logdir) = checkpoint
 
-    writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', datetime.datetime.now().strftime('%m_%d_%y_%H_%M')))
+    writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', sub_logdir))
 
     print('Starting training..')
     for epoch in trange(num_epochs):
@@ -467,7 +472,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_p_loss = 0
         epoch_s_loss = 0
         curr_epoch_batch = 0
-        report_memory(device=device, show_tensors=True)
+        # TODO find why extra set of grads is being stored for placement clstm
+        # report_memory(device=device, show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
             # if resuming from checkpoint, skip batches until starting batch for the epoch
@@ -476,7 +482,6 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
                     start_epoch_batch = 0
                 continue
 
-            # TODO find why extra set of grads is stored
             with torch.set_grad_enabled(train_clstm):
                 placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
                     placement_optim, PLACEMENT_CRITERION, batch, device, writer,
