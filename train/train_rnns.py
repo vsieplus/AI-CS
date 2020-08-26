@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -623,7 +622,9 @@ def get_dataloader(dataset):
 def main():
     args = parse_args()
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0')
+    print('Device:', device)
     torch.manual_seed(SEED)
 
     # Retrieve/prepare data

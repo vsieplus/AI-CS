@@ -42,7 +42,7 @@ def search_for_music(chart_filename, root):
     if len(music_names) == 0:
         raise ValueError('no audio file found for {}'.format(chart_filename))
 
-    return music_names[0]
+    return os.path.join(root, music_names[0])
 
 def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
     """Parses a set of pack's chart files (ucs/ssc)"""
@@ -71,12 +71,6 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
         root = os.path.abspath(os.path.join(pack_chart_file, '..'))
         music_fp = os.path.join(root, chart_attrs.get('music', ''))
 
-        if 'music' not in chart_attrs or not os.path.exists(music_fp):
-            try:
-                music_fp = search_for_music(os.path.splitext(chart_filename)[0], root)
-            except ValueError as e:
-                continue
-
         # determine output filename/path
         chart_filename = os.path.split(os.path.split(pack_chart_file)[0])[1]
         if chart_type == 'ssc':
@@ -92,12 +86,18 @@ def parse_pack_charts(pack_name_clean, pack_chart_files, out_dir):
 
         chart_files_clean.add(chart_filename_clean)
 
+        if 'music' not in chart_attrs or not os.path.exists(music_fp):
+            try:
+                music_fp = search_for_music(os.path.splitext(chart_filename)[0], root)
+            except ValueError:
+                continue
+
         out_json_path = os.path.join(pack_outdir, '{}_{}.json'.format(pack_name_clean, chart_filename_clean))
 
         # constrcut json object to save with important fields
         out_json = OrderedDict([
-            ('chart_fp', os.path.abspath(pack_chart_file)),
-            ('music_fp', os.path.abspath(music_fp)),
+            ('chart_fp', os.path.relpath(pack_chart_file)),
+            ('music_fp', os.path.relpath(music_fp)),
             ('pack', pack_name_clean),
             ('title', chart_attrs.get('title')),
             ('artist', chart_attrs.get('artist')),

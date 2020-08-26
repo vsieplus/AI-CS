@@ -90,7 +90,7 @@ def main():
     for pack_name in pack_names:
         pack_dir = os.path.join(args.json_dir, pack_name)
         sub_fps = os.listdir(pack_dir)
-        sub_fps = [os.path.abspath(os.path.join(pack_dir, sub_fp)) for sub_fp in sub_fps]
+        sub_fps = [os.path.relpath(os.path.join(pack_dir, sub_fp)) for sub_fp in sub_fps]
 
         if args.shuffle:
             random.seed(args.shuffle_seed)

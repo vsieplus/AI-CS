@@ -20,6 +20,7 @@ from util import convert_chartframe_to_melframe
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
 ABS_PATH = str(Path(__file__).parent.absolute())
+DATA_DIR = os.path.join('..', 'data')
 CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
 
 R_CHART_UTIL_PATH = os.path.join(ABS_PATH, '..', 'shiny', 'util.R')
@@ -138,7 +139,7 @@ class StepchartDataset(Dataset):
 		self.special_tokens = {} # track special tokens in this dataset (idx -> ucs step (str))
 
 		# store the file paths and chart_indices to load
-		self.chart_ids = self.filter_fps(metadata['json_fps'])
+		self.chart_ids = self.filter_fps([os.path.join(DATA_DIR, fp) for fp in metadata['json_fps']])
 		self.print_summary()
 		self.compute_stats()
 
@@ -192,7 +193,7 @@ class StepchartDataset(Dataset):
 
 			if chart_indices:
 				# create new song if needed
-				song_path = attrs['music_fp']
+				song_path = os.path.join(DATA_DIR, attrs['music_fp'])
 				if song_path not in self.songs:
 					self.songs[song_path] = Song(song_path, attrs['title'], attrs['artist'],
 						  						 attrs['genre'], attrs['songtype'])
@@ -212,7 +213,7 @@ class StepchartDataset(Dataset):
 		# .ssc (may contain multiple charts/same song) or .ucs (always 1 chart)    
 		orig_filetype = attrs['chart_fp'].split('.')[-1]
 
-		song_path = attrs['music_fp']
+		song_path = os.path.join(DATA_DIR, attrs['music_fp'])
 
 		chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path],
 					   orig_filetype, permutation, self.special_tokens)
