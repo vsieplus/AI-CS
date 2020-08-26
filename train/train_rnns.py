@@ -473,7 +473,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         epoch_p_loss = 0
         epoch_s_loss = 0
         curr_epoch_batch = 0
-        report_memory(device=device, show_tensors=True)
+        # report_memory(device=device, show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
             # if resuming from checkpoint, skip batches until starting batch for the epoch

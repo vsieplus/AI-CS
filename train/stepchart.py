@@ -9,7 +9,7 @@ import rpy2.robjects as robj
 import torch
 from torch.utils.data import Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
-from tqdm import tqdm
+from tqdm import trange
 from pathlib import Path
 from joblib import Memory
 
@@ -161,8 +161,10 @@ class StepchartDataset(Dataset):
 		print(f'Chart Permutations: {self.permutations}')
 
 	def compute_stats(self):
+		print("Caching dataset...")
+		
 		# load once at start to compute overall stats + cache tensors
-		charts = [self.__getitem__(idx) for idx in range(len(self.chart_ids))]
+		charts = [self.__getitem__(idx) for idx in trange(len(self.chart_ids))]
 
 		self.n_unique_charts = self.__len__() // len(self.permutations)
 		self.n_steps = sum([chart.n_steps for chart in charts])
@@ -328,16 +330,11 @@ def sequence_to_tensor(sequence):
 	return torch.cat(step_tensors).view(-1, NUM_ARROW_STATES * num_steps)
 
 @memory.cache
-def permute_steps(steps, chart_type, permutation_type, filetype):
+def permute_steps(steps, chart_type, permutation_type):
 	# permutation numbers signify moved location of original step
 	#   ex) steps = '10010'
 	#       permt = '43210' -> (flip horizontally)
-	#    newsteps = '01001'
-
-	# use UCS notation for less ambiguity
-	if filetype == 'ssc':
-		steps = robj.r.convertToUCS(step_sequence)
-	
+	#    newsteps = '01001'	
 	if not permutation_type:
 		return steps
 
@@ -364,29 +361,30 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 
 		# only store non-empty steps in the sequence
 		if step_this_frame:
-			step_sequence.append(permute_steps(steps, chart_type, permutation_type, filetype))
+			step_sequence.append(permute_steps(steps, chart_type, permutation_type))
+
+	# use UCS notation for less ambiguity
+	if filetype == 'ssc':
+		step_sequence = robj.r.convertToUCS(step_sequence)
 
 	return step_placement_frames, step_sequence
 
 @memory.cache
-def step_sequence_to_targets(step_input, step_sequence, chart_type, special_tokens):
+def step_sequence_to_targets(step_input, chart_type, special_tokens):
 	"""
 	given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
 		in: step_input - shape [seq length, chart_features], tensor representations of (nonempty) steps
-			step_sequence - shape [seq length] - original [ucs] string representations of step sequence
 			chart_type - 'pump-single' or 'pump-double'
 			special_tokens - predefined special token indices/values in the chart's dataset,
 							 use for doubles charts with 5+ activated arrows at a time
 		out: targets - shape [seq length], values in range [0, vocab size - 1]
 	"""
-	num_arrows = len(step_sequence[0])
+	num_arrows = step_input.size(1) // NUM_ARROW_STATES
 	targets = torch.zeros(step_input.size(0), dtype=torch.long)
 	n_special_tokens = 0
 
-	assert(step_input.size(0) == len(step_sequence))
-
 	for s in range(step_input.size(0)):
-		# index in order of: num active arrows [1, ..., num_arrows - 1] (ignore 0)
+		# index in order of: num active arrows [0, ..., num_arrows - 1]
 		# 				  -> arrow indices [0, ..., num_arrows - 1] x num_active_arrows
 		#				  -> arrow states [1, ..., num_arrow_states - 1] (ignore off)
 
@@ -398,7 +396,7 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type, special_toke
 
 		active_arrow_states = []
 		active_arrow_indices = []
-		for i in range(step_input.size(1) // NUM_ARROW_STATES):
+		for i in range(num_arrows):
 			start = i * NUM_ARROW_STATES
 			arrow_state = (step_input[s, start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
 
@@ -410,9 +408,9 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type, special_toke
 
 		# if num active exceed maximum, add to end of special tokens
 		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
-			curr_step = step_sequence[s]
+			curr_step = step_features_to_str(step_input[s])
 			if curr_step not in special_tokens.values():
-				new_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens) - 1
+				new_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
 				special_tokens[new_idx] = curr_step
 				n_special_tokens += 1
 			continue
@@ -421,10 +419,11 @@ def step_sequence_to_targets(step_input, step_sequence, chart_type, special_toke
 			idx += math.comb(num_arrows, num_active) * (3 ** num_active)
 
 		first_possible_idx = 0
-		for arrow_idx in active_arrow_indices:
+		for k, arrow_idx in enumerate(active_arrow_indices):
 			if arrow_idx > first_possible_idx:
-				for j in range(arrow_idx):
-					idx += 3 ** num_active_arrows * (num_arrows - j - 1)
+				# count over the possible arrangements of steps that use the skipped indices
+				for skipped_idx in range(first_possible_idx, arrow_idx):
+					idx += (3 ** num_active_arrows) * (num_arrows - skipped_idx - 1)
 			
 			first_possible_idx = arrow_idx + 1
 		
@@ -459,6 +458,30 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	last_frame = mel_placement_frames[-1].item()
 
 	return placement_target, first_frame, last_frame
+
+def step_features_to_str(features, out_format='ucs'):
+	""" convert step features to their string representation"""
+	num_arrows = features.size(0) // NUM_ARROW_STATES
+	result = ''
+
+	if out_format == 'ucs':
+		for arrow in range(num_arrows):
+			start = arrow * NUM_ARROW_STATES
+			state_idx = (features[start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
+
+			if state_idx == 0:
+				result += '.'
+			elif state_idx == 1:
+				result += 'X'
+			elif state_idx == 2:
+				result += 'H'
+			elif state_idx == 3:
+				result += 'W'
+
+	elif out_format == 'ssc':
+		pass
+	
+	return result
 
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""
@@ -496,8 +519,7 @@ class Chart:
 
 		self.step_sequence = sequence_to_tensor(step_sequence)
 		(self.step_targets,
-		 self.n_special_tokens) = step_sequence_to_targets(self.step_sequence, step_sequence, 
-		 												   self.chart_type, special_tokens)
+		 self.n_special_tokens) = step_sequence_to_targets(self.step_sequence, self.chart_type, special_tokens)
 
 		# ignore steps in sequence after song has ended
 		# (make sure length matches num of placement targets)
