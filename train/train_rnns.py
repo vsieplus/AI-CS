@@ -622,8 +622,7 @@ def get_dataloader(dataset):
 def main():
     args = parse_args()
 
-    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cuda:0')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Device:', device)
     torch.manual_seed(SEED)
 
