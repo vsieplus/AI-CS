@@ -52,3 +52,6 @@ def convert_chartframe_to_melframe(frame, sample_rate, hop_length=HOP_LENGTH, ch
     """
     frame_secs = frame / chart_frame_rate
     return frame_secs * sample_rate / hop_length
+
+def convert_melframe_to_secs(melframe, sample_rate, hop_length=HOP_LENGTH):
+    return (hop_length * melframe) / sample_rate

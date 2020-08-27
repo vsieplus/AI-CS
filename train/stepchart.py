@@ -290,13 +290,13 @@ STEP_PATTERNS = {
 	'ssc': re.compile('[1-3]')
 }
 
-# UCS_SSC_DICT = {
-# 	'.': '0',   # no step
-# 	'X': '1',   # normal step
-# 	'M': '2',   # start hold
-# 	'H': '0',   # hold (0 between '2' ... '3' in ssc)
-# 	'W': '3',   # release hold
-# }
+UCS_SSC_DICT = {
+	'.': '0',   # no step
+ 	'X': '1',   # normal step
+ 	'M': '2',   # start hold
+ 	'H': '0',   # hold (0 between '2' ... '3' in ssc)
+ 	'W': '3',   # release hold
+}
 
 # symbols used in step representation
 UCS_STATE_DICT = {
@@ -462,6 +462,17 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 
 	return placement_target, first_frame, last_frame
 
+def step_index_to_features(index, chart_type, special_tokens, device):
+    """ convert a step index to its corresponding feature tensor """
+
+    if special_tokens and index in special_tokens:
+        return sequence_to_tensor([special_tokens[index]])
+
+    # perform 'inverse' of step_sequence_to_targets 
+    features = torch.zeros(SELECTION_INPUT_SIZES[chart_type], dtype=torch.long, device=device)
+
+    return features
+
 def step_features_to_str(features, out_format='ucs'):
 	""" convert step features to their string representation"""
 	num_arrows = features.size(0) // NUM_ARROW_STATES
@@ -480,9 +491,8 @@ def step_features_to_str(features, out_format='ucs'):
 				result += 'H'
 			elif state_idx == 3:
 				result += 'W'
-
 	elif out_format == 'ssc':
-		pass
+        raise NotImplementedError
 	
 	return result
 
