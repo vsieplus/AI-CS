@@ -424,8 +424,8 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
             total_s_loss / len(data_iter), total_s_acc / len(data_iter))
 
 # full training process from placement -> selection
-def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, device, save_dir, load_checkpoint,
-               retrain, dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
+def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, retrain, 
+               dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
@@ -433,7 +433,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
     placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
     #placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
 
-    selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset_type], 
+    selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
                                  dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
     selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
     #selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR)
@@ -471,7 +471,6 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         print('Epoch: {}'.format(epoch))
         epoch_p_loss = 0
         epoch_s_loss = 0
-        curr_epoch_batch = 0
         # report_memory(device=device, show_tensors=True)
 
         for i, batch in enumerate(tqdm(train_iter)):
@@ -499,14 +498,12 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
             writer.add_scalar('loss/train_selection', selection_loss, step)
             writer.add_scalar('accuracy/train_selection', selection_acc, step)
 
-            curr_epoch_batch += 1
-
             if train_clstm:
                 save_model(placement_clstm, save_dir, CLSTM_SAVE)
             if train_srnn:
                 save_model(selection_rnn, save_dir, SRNN_SAVE)       
 
-            save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss,
+            save_checkpoint(epoch, i, best_placement_valid_loss,
                             best_selection_valid_loss, train_clstm, train_srnn, save_dir)
 
         epoch_p_loss = epoch_p_loss / len(train_iter)
@@ -570,10 +567,10 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, dataset_type, devi
         'selection_test_accuracy': selection_test_acc
     }
 
-    summary_json = log_training_stats(writer, dataset, summary_json)
+    model_summary = log_training_stats(writer, dataset, summary_json)
 
     with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
-        f.write(json.dumps(summary_json, indent=2))
+        f.write(json.dumps(model_summary, indent=2))
 
     # save special tokens for dataset vocabulary if needed
     if dataset.special_tokens:
@@ -590,6 +587,7 @@ def log_training_stats(writer, dataset, summary_json):
         'min_level': dataset.min_level,
         'max_level': dataset.max_level,
         'avg_steps_per_second': dataset.avg_steps_per_second,
+        'vocab_size': dataset.vocab_size
         **summary_json
     }
 
@@ -613,7 +611,26 @@ def log_training_stats(writer, dataset, summary_json):
     writer.add_hparams(hparam_dict, summary_json)
     writer.close()
 
-    return summary_json
+    hparam_dict = {
+        'placement_channels': PLACEMENT_CHANNELS,
+        'placement_filters': PLACEMENT_FILTERS,
+        'placement_kernels': PLACEMENT_KERNEL_SIZES,
+        'placement_pool_kernel': PLACEMENT_POOL_KERNEL,
+        'placement_pool_stride': PLACEMENT_POOL_STRIDE,
+        'placement_lstm_layers': NUM_PLACEMENT_LSTM_LAYERS,
+        'placement_input_size': PLACEMENT_INPUT_SIZE,
+        'selection_lstm_layers': NUM_SELECTION_LSTM_LAYERS,
+        'selection_input_size': SELECTION_INPUT_SIZES[dataset.chart_type],
+        'type': 'rnns',
+        'dataset_name': dataset.name,
+        'chart_type': dataset.chart_type,
+        'song_types': dataset.songtypes,
+        'step_artists': dataset.step_artists,
+        'permutations': dataset.permutations,
+        **hparam_dict
+    }
+
+    return {**summary_json, **hparam_dict}
 
 def get_dataloader(dataset):
     return DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_charts,
@@ -630,7 +647,6 @@ def main():
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
     dataset = StepchartDataset(args.dataset_path)
-    dataset_type = dataset.chart_type
 
     train_data, valid_data, test_data = get_splits(dataset)
     train_iter = get_dataloader(train_data)
@@ -641,8 +657,8 @@ def main():
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')
     print(datasets_size_str)
 
-    run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, dataset_type, device, 
-               args.save_dir, args.load_checkpoint, args.retrain, dataset)
+    run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
+               args.load_checkpoint, args.retrain, dataset)
 
 if __name__ == '__main__':
     main()

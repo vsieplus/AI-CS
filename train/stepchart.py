@@ -165,19 +165,21 @@ class StepchartDataset(Dataset):
 		print("Caching dataset...")
 		
 		# load once at start to compute overall stats + cache tensors
-		charts = [self.__getitem__(idx) for idx in trange(len(self.chart_ids))]
+		#charts = [self.__getitem__(idx) for idx in trange(len(self.chart_ids))]
 
 		self.n_unique_charts = self.__len__() // len(self.permutations)
-		self.n_steps = sum([chart.n_steps for chart in charts])
+		self.n_steps = 0
+		#self.n_steps = sum([chart.n_steps for chart in charts])
 		self.n_audio_hours = sum([song.n_minutes for song in self.songs.values()]) / 60
 
 		if not self.step_artists:
 			self.step_artists = set()
-			for chart in charts:
-				self.step_artists.add(chart.step_artist)
+		#	for chart in charts:
+		#		self.step_artists.add(chart.step_artist)
 
-		steps_per_second = [chart.steps_per_second for chart in charts]
-		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
+		#steps_per_second = [chart.steps_per_second for chart in charts]
+		#self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
+		self.avg_steps_per_second = 0
 
 	# filter charts to include in the dataset; store path to json + chart index num.
 	def filter_fps(self, json_fps):
