@@ -11,6 +11,7 @@ sys.path.append(os.path.join('..', 'train'))
 from hyper import N_CHART_TYPES, N_LEVELS
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer ArrowTransformer
+from stepchart import sequence_to_tensor
 import extract_audio_feats
 import train_rnns
 
@@ -36,10 +37,7 @@ def save_chart(chart_data, chart_format, song_name, artist, bpm, special_tokens,
         print(f'Creating output directory {out_dir}')
         os.makedirs(out_dir)
 
-    # Obtain ucs representation first, then convert if needed
-    
-
-
+    # convert from ucs format if needed
     if chart_format == 'ssc' or if chart_format == 'both':
         pass
 
@@ -94,11 +92,17 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type,
                 hidden, cell = selection_model.initStates(batch_size=1, device=device)
                 logits, (hidden, cell) = selection_model(start_token, None, hidden, cell, step_length)
             else:
+                next_step = sequence_to_tensor(next_token)
+
                 placement_hidden = placement_hiddens[0, placement_melframe]
-                logits, (hidden, cell) = selection_model(next_token, placement_hidden, hidden, cell, step_length)
+                logits, (hidden, cell) = selection_model(next_step, placement_hidden, hidden, cell, step_length)
 
-            next_step = predict_step(logits, sampling, k, p)
+            next_token_idx = predict_step(logits, sampling, k, p)
+            # next_token = ...
 
+            chart_data.append((placement_time, next_token))
+    
+    return chart_data
 
 def predict_step(logits, sampling, k, p):
     """predict the next step given model logits and a sampling strategy"""
@@ -160,7 +164,7 @@ def main():
     elif model_summary['type'] == 'transformer':
         pass
 
-    # a list of pairs of (absolute time (s), steps vocab index)
+    # a list of pairs of (absolute time (s), step [ucs str format])
     chart_data = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
                                 args.level, model_summary['selection_input_size'], args.sampling, k, p, device)
 
