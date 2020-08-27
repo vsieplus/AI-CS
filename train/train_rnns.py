@@ -617,12 +617,13 @@ def log_training_stats(writer, dataset, summary_json):
 
 def get_dataloader(dataset):
     return DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_charts,
-                      shuffle=True, num_workers=4)
+                      shuffle=True)
 
 def main():
     args = parse_args()
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cpu')
     print('Device:', device)
     torch.manual_seed(SEED)
 
