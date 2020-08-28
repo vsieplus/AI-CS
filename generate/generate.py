@@ -18,8 +18,13 @@ from extract_audio_feats import extract_audio_feats
 import train_rnns
 import util
 
-SUBDIVISION = 128
-FAKE_BPM = 60 * CHART_FRAME_RATE * (1.0 / float(SUBDIVISION)) * 4.0
+BEATS_PER_MEASURE = 4
+SPLITS_PER_BEAT = 32
+SPLIT_SUBDIV = SPLITS_PER_BEAT * BEATS_PER_MEASURE   # splits per measure
+
+# SPLITS_PER_BEAT = 1 / ((FAKE_BPM / 60 ) / CHART_FRAME_RATE)
+# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split 
+FAKE_BPM = 60 * (CHART_FRAME_RATE / SPLITS_PER_BEAT)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -32,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--song_artist', type=str, help='song artist')
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=100, help='the k to use in top-k sampling')
+    parser.add_argument('-k', type=int, default=50, help='the k to use in top-k sampling')
     parser.add_argument('-p', type=int, default=0.9, help='the p to use in top-p sampling')
 
     return parser.parse_args()
@@ -49,22 +54,29 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
     # adapted from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py (~221)
     ten_ms_frames_to_steps = {int(round(time * CHART_FRAME_RATE)) : step for time, step in chart_data}
     max_num_splits = max(ten_ms_frames_to_steps.keys())
-    if max_num_splits % SUBDIVISION != 0:
-        max_num_splits += SUBDIVISION - (max_num_splits % SUBDIVISION)
+    if max_num_splits % SPLIT_SUBDIV != 0:
+        max_num_splits += SPLIT_SUBDIV - (max_num_splits % SPLIT_SUBDIV)
         
     if chart_type == 'pump-single':
         blank_note = '.' * 5
     elif chart_type == 'pump-double':
         blank_note = '.' * 10
 
-    splits = [ten_ms_frames_to_steps.get(i, blank_note) for i in range(max_num_splits)]
+    splits = []
+    curr_holds = set()
+    curr_steps = set()
+    for i in range(max_num_splits):
+        curr_note = ten_ms_frames_to_steps.get(i, blank_note)
+        curr_note, _, _ = filter_steps(curr_note, curr_holds, curr_steps, dense=True)
+        
+        splits.append(curr_note)
 
     charts_to_save = []
 
     if chart_format == 'ucs' or chart_format == 'both':
         # 100ms for chart delay
         chart_attrs = { 'Format': 1, 'Mode': 'Single' if chart_type == 'pump-single' else 'Double',
-                        'BPM': FAKE_BPM, 'Delay': 100, 'Beat': 4, 'Split': SUBDIVISION }
+                        'BPM': FAKE_BPM, 'Delay': 100, 'Beat': BEATS_PER_MEASURE, 'Split': SPLITS_PER_BEAT }
 
         chart_txt = ''
         for key, val in chart_attrs.items():
@@ -168,19 +180,30 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type,
             # convert token index -> feature tensor -> str [ucs] representation
             next_token = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
             next_token_str = step_features_to_str(next_token)
-            next_token_str, new_hold_indices = filter_steps(next_token_str, hold_indices, step_indices)
+            (next_token_str,
+             new_hold_indices,
+             released_indices) = filter_steps(next_token_str, hold_indices, step_indices)
 
             # replace steps ('X') immediately before holds ('H') as ('M')
-            if new_hold_indices:
+            #         holds ('H') immediately before steps ('X') as ('W')
+            if new_hold_indices or released_indices:
                 prev_step = chart_data[i - 1][1] 
-                chart_data[i - 1][1] = ''.join(['M' if k in new_hold_indices else prev_step[k] 
-                                                for k in range(len(prev_step))])
+                replacement = ''
+                for k in range(len(prev_step)):
+                    if k in new_hold_indices:
+                        replacement += 'M'
+                    elif k in released_indices:
+                        replacement += 'W'
+                    else:
+                        replacement += prev_step[k]
+
+                chart_data[i - 1][1] = replacement
 
             chart_data.append([placement_time, next_token_str])
    
     return chart_data
 
-def filter_steps(token_str, hold_indices, step_indices):
+def filter_steps(token_str, hold_indices, step_indices, dense=False):
     # filter out step exceptions:
     #  - cannot release 'W' if not currently held
     #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' 
@@ -188,6 +211,7 @@ def filter_steps(token_str, hold_indices, step_indices):
 
     new_token_str = ''
     new_hold_indices = []
+    released_indices = []
 
     for j in range(len(token_str)):
         token = token_str[j]
@@ -207,17 +231,24 @@ def filter_steps(token_str, hold_indices, step_indices):
                 new_hold_indices.append(j)
                 step_indices.remove(j)
         elif token == 'X':
+            if curr_step_hold:
+                released_indices.append(j)
+                hold_indices.remove(j)
+
             step_indices.add(j)
         elif token == '.':
             step_indices.discard(j)
 
             if curr_step_hold:
-                token = 'W'
-                hold_indices.remove(j)
+                if dense:
+                    token = 'H'
+                else:
+                    token = 'W'
+                    hold_indices.remove(j)
              
         new_token_str += token
 
-    return new_token_str, new_hold_indices
+    return new_token_str, new_hold_indices, released_indices
 
 def predict_step(logits, sampling, k, p):
     """predict the next step given model logits and a sampling strategy"""

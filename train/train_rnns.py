@@ -126,11 +126,11 @@ def predict_placements(logits, levels, lengths):
     predictions = torch.zeros(logits.size(0), logits.size(1))
     for b in range(logits.size(0)):
         # from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py
-        probs_smoothed = np.convolve(probs[b].numpy(), np.hamming(5), 'same')
+        probs_smoothed = np.convolve(probs[b, :, 1].numpy(), np.hamming(5), 'same')
         maxima = argrelextrema(probs_smoothed, np.greater_equal, order=1)[0]
 
         for i in maxima:
-            predictions[b, i] = probs[b, i] >= PLACEMENT_THRESHOLDS[levels[b]]
+            predictions[b, i] = probs[b, i, 1] >= PLACEMENT_THRESHOLDS[levels[b] - 1]
 
         # predictions[b, :lengths[b]] = probs[b, :lengths[b],  1] >= PLACEMENT_THRESHOLDS[levels[b]]
 
