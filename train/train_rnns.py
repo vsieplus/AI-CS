@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
+from scipy.signal import argrelextrema
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -117,17 +119,20 @@ def predict_placements(logits, levels, lengths):
                 lengths: [batch] for each example, current length
         output: predictions [batch, unroll_length]; 1 -> step, 0 -> no step
     """
-    thresholds = [MAX_THRESHOLD - ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
-                  for level in levels]
-
     # compute probability dists. for each timestep [batch, unroll, 2]
     probs = F.softmax(logits, dim=-1)
-    #hamming_window = torch.hamming_window(window_length=probs.size(1))
 
     # [batch, unroll (lengths)]
     predictions = torch.zeros(logits.size(0), logits.size(1))
     for b in range(logits.size(0)):
-        predictions[b, :lengths[b]] = probs[b, :lengths[b],  1] >= thresholds[b]
+        # from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py
+        probs_smoothed = np.convolve(probs[b].numpy(), np.hamming(5), 'same')
+        maxima = argrelextrema(probs_smoothed, np.greater_equal, order=1)[0]
+
+        for i in maxima:
+            predictions[b, i] = probs[b, i] >= PLACEMENT_THRESHOLDS[levels[b]]
+
+        # predictions[b, :lengths[b]] = probs[b, :lengths[b],  1] >= PLACEMENT_THRESHOLDS[levels[b]]
 
     return predictions
 
