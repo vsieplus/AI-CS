@@ -20,7 +20,7 @@ def normalize_features(features):
     if sd == 0:
         sd = 1
 
-    return (features - features.mean()) / features.std()
+    return (features - mean) / sd
 
 # n_ffts -> sizes of FFT to use; default ~ 23ms, 46ms, 93ms
 def extract_audio_feats(audio_fp, n_ffts=[1024, 2048, 4096], hop_length=512, pad=0, n_mels=80):
