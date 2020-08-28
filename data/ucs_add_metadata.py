@@ -62,12 +62,10 @@ def crawl_base_download():
     process.start()
 
 def crawl_meta_download():
-    process = CrawlerProcess(settings={
-            "FEEDS":{META_JSON_PATH: {"format": "json"}}
-        })
+    process = CrawlerProcess(settings={"FEEDS":{META_JSON_PATH: {"format": "json"}}})
 
     process.crawl(ucs_meta_spider.UCS_MetaSpider)
-    process.start()
+    process.start(stop_after_crawl=False)
 
 def main():
     parser = argparse.ArgumentParser()
