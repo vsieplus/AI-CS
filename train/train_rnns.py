@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
     parser.add_argument('--retrain', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
+    parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
 
     args = parser.parse_args()
 
@@ -639,8 +640,7 @@ def get_dataloader(dataset):
 def main():
     args = parse_args()
 
-    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cpu')
+    device = torch.device('cpu') if args.cpu else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Device:', device)
     torch.manual_seed(SEED)
 
