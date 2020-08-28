@@ -426,7 +426,7 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
 			if arrow_idx > first_possible_idx:
 				# count over the possible arrangements of steps that use the skipped indices
 				for skipped_idx in range(first_possible_idx, arrow_idx):
-					idx += (3 ** num_active_arrows) * (num_arrows - skipped_idx - 1)
+					idx += (3 ** num_active_arrows) * calc_arrangements(skipped_idx, len(active_arrow_indices) - k, num_arrows - 1)
 			
 			first_possible_idx = arrow_idx + 1
 		
@@ -463,70 +463,73 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	return placement_target, first_frame, last_frame
 
 def step_index_to_features(index, chart_type, special_tokens, device):
-    """ convert a step index to its corresponding feature tensor """
+	""" convert a step index to its corresponding feature tensor """
 
-    if special_tokens and index in special_tokens:
-        return sequence_to_tensor([special_tokens[index]])
+	if special_tokens and index in special_tokens:
+		return sequence_to_tensor([special_tokens[index]])
 
-    # perform 'inverse' of step_sequence_to_targets()
-    features = torch.zeros(SELECTION_INPUT_SIZES[chart_type], dtype=torch.long, device=device)
-    num_arrows = features.size(0) // NUM_ARROW_STATES
-    
-    num_active_arrows = 0
-    tracking_index = 0
-    
-    # determine no. of active arrows
-    for num_active in range(num_arrows + 1):
-        n_steps = math.comb(num_arrows, num_active) * (3 ** num_active)
+	# perform 'inverse' of step_sequence_to_targets()
+	features = torch.zeros(SELECTION_INPUT_SIZES[chart_type], dtype=torch.long, device=device)
+	num_arrows = features.size(0) // NUM_ARROW_STATES
+	off_indices = torch.tensor([arrow * NUM_ARROW_STATES for arrow in range(num_arrows)], dtype=torch.long,
+								device=device)
+	features[off_indices] = 1
 
-        if index < tracking_index + n_steps:
-            num_active_arrows = num_active
-            break
-        else:
-            tracking_index += n_steps
+	num_active_arrows = 0
+	tracking_index = 0
 
-    if num_active_arrows > 0:
-        # determine which arrows are active
-        active_indices = []
+	# determine no. of active arrows
+	for num_active in range(num_arrows + 1):
+		n_steps = math.comb(num_arrows, num_active) * (3 ** num_active)
 
-        # all steps with first possible index enumerated first
-        for arrow_idx in range(num_arrows):
-            # find number of arrangements for steps starting w/current index
-            n_arrangements = calc_arrangements(arrow_idx, num_active_arrows - len(active_indices), num_arrows - 1)
-            if index < tracking_index + n_arrangements:
-                active_indices.append(arrow_idx)
-            else:
-                tracking_index += n_arrangements
-                    
-            if len(active_indices) == num_active_arrows:
-                break
+		if index < tracking_index + n_steps:
+			num_active_arrows = num_active
+			break
+		else:
+			tracking_index += n_steps
 
-        # determine the states of each arrow
-		# base 3 R -> L
-        arrow_states = []
-        for a in range(num_active_arrows):
-            for state in range(NUM_ARROW_STATES - 1):
-                n_combinations = (3 ** (num_active_arrows - a - 1))
-                if index < tracking_index + n_combinations:
-                    arrow_states.append(state)
-                    break
-                else:
-                    tracking_index += n_combinations
-            
-        breakpoint()
-        for idx, state in zip(active_indices, arrow_states):
-            features[(idx * NUM_ARROW_STATES) + state] = 1
+	if num_active_arrows > 0:
+		# determine which arrows are active
+		active_indices = []
 
-    return features
+		states_per_arrangement = 3 ** num_active_arrows
+
+		# all steps with first possible index enumerated first
+		for arrow_idx in range(num_arrows):
+			# find number of arrangements for steps starting w/current index
+			n_arrangements = calc_arrangements(arrow_idx, num_active_arrows - len(active_indices), num_arrows - 1)
+			if index < tracking_index + (n_arrangements * states_per_arrangement):
+				active_indices.append(arrow_idx)
+			else:
+				tracking_index += n_arrangements * states_per_arrangement
+
+			if len(active_indices) == num_active_arrows:
+				break
+
+		# determine the states of each arrow
+		arrow_states = []
+		for a in range(num_active_arrows):
+			for state in range(1, NUM_ARROW_STATES):
+				n_state_arrangements = (3 ** (num_active_arrows - a - 1))
+				if index < tracking_index + n_state_arrangements:
+					arrow_states.append(state)
+					break
+				else:
+					tracking_index += n_state_arrangements
+
+		for idx, state in zip(active_indices, arrow_states):
+			features[(idx * NUM_ARROW_STATES)] = 0
+			features[(idx * NUM_ARROW_STATES) + state] = 1
+
+	return features
 
 def calc_arrangements(starting_index, num_indices, max_index):
-    """ return the number of arrangements of increasing indices from starting_index -> max_index"""
-    if num_indices == 1:
-        return 1 # only the singleton arrangement [starting_index]
-    else:
-        return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
-                    for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
-        
+	""" return the number of arrangements of increasing indices from starting_index -> max_index"""
+	if num_indices == 1:
+		return 1 # only the singleton arrangement [starting_index]
+	else:
+		return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
+					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
 
 def step_features_to_str(features, out_format='ucs'):
 	""" convert step features to their string representation"""
