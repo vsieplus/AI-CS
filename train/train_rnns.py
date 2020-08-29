@@ -47,12 +47,6 @@ def parse_args() -> argparse.Namespace:
         else:    
             raise ValueError('--dataset_name, --dataset_path, or --load_checkpoint required')
 
-    if not args.save_dir:
-        args.save_dir = os.path.join(MODELS_DIR, os.path.split(args.dataset_path)[-1].split('.')[0])
-
-    if not os.path.isdir(args.save_dir):
-        os.makedirs(args.save_dir)
-
     return args
 
 def get_placement_accuracy(predictions, targets, lengths):
@@ -570,6 +564,14 @@ def main():
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
     dataset = StepchartDataset(args.dataset_path)
+
+    if not args.save_dir:
+        # models/{single/double}/dataset_name/...
+        args.save_dir = os.path.join(MODELS_DIR, dataset.chart_type.split('-')[-1],
+                                     os.path.split(args.dataset_path)[-1].split('.')[0])
+
+    if not os.path.isdir(args.save_dir):
+        os.makedirs(args.save_dir)
 
     train_data, valid_data, test_data = get_splits(dataset)
     train_iter = get_dataloader(train_data)
