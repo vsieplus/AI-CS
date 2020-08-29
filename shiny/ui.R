@@ -4,6 +4,8 @@
 library(shiny)
 library(shinythemes)
 
+source('util.R', local = TRUE)
+
 CHART_TYPES <- list(Single = 'single', Double = 'double')
 CHART_FORMATS <- c('ssc', 'ucs')
 
@@ -31,9 +33,8 @@ ui <- navbarPage(
      
       # Generation settings
       sidebarPanel(width = 3, position = 'left',
-        radioButtons('chart_type', 'Chart/Model type:', 
-                     choices = CHART_TYPES, inline = TRUE),
-        selectInput('model', 'Select model', choices = NULL),
+        radioButtons('chart_type', 'Chart/Model type:', choices = CHART_TYPES, inline = TRUE),
+        selectInput('model', 'Select model', choices = modelsList[['single']]),
       
         sliderInput('chart_level', 'Chart level:', value = 1, min = 1, max = 26),
       
@@ -55,21 +56,20 @@ ui <- navbarPage(
         includeHTML('html/generate_header.html'),
         fluidRow(
           # column for model information
-          column(4, h3('Current model'), textOutput('model_summary')),
+          column(4, h3('Current model'), htmlOutput('model_summary')),
           
-          # column for audio visualization
+          # column for audio, model, chart section visualizations
           column(5, 
            h3('Audio sample spectrogram'), h3(),
            actionButton('play_audio', 'Play audio clip', icon = icon('play')),
            plotOutput('spectrogram_plot'),
            # sliderInput (clip location) ?
-           uiOutput('audio'))
+           uiOutput('audio'),
+           plotOutput('model_peak_picking_plot'),
+           plotOutput('chart_section_plot')),
         ),
         
-        # model output visualizations
-        
-        # step chart/distribution visualization
-        plotOutput('chart_section_plot'),
+        # step chart/distribution visualization,
         plotOutput('chart_distribution_plot')
       )
     )

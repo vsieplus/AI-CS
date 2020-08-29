@@ -4,12 +4,10 @@
 import logging
 import re
 import os
+from pathlib import Path
 from collections import OrderedDict
 
 from util import calc_note_beats_and_abs_times, bpm_to_spb
-
-import os
-from pathlib import Path
 
 ABS_PATH = Path(__file__).parent.absolute()
 UCS_BASE_PATH = os.path.join(str(ABS_PATH), '../dataset/raw/00-UCS_BASE')
@@ -163,10 +161,7 @@ def ucs_notes_parser(chart_txt):
         beats_per_measure = int(beats_per_measure)
         splits_per_beat = int(splits_per_beat)
 
-        # subtract 100MS from delay to line up notes with audio
-        # only first section should use delay
-        if curr_section == 0:
-            delay_secs = (delay_ms - 100) / float(1000)
+        delay_secs = delay_ms / float(1000)
 
         splits = splits_txt.splitlines()
         splits_per_measure = splits_per_beat * beats_per_measure

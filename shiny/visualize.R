@@ -1,5 +1,4 @@
 # functions to visualize audio/chart properties
-
 library(dplyr)
 library(ggplot2)
 library(grid)
@@ -7,20 +6,23 @@ library(extrafont)
 library(magick)
 library(reshape2)
 library(av)
-## Chart Processing (util functions) ####################################
 
-library(reticulate) # change to path to your python version
-parse <- import_from_path('parse', path = file.path('..', 'data', 'processing'))
+## Chart Processing (util functions) ####################################
+library(reticulate)
+use_python('/home/vsie/anaconda3/bin/python3.8')
+use_condaenv('aics')
+parse <- reticulate::import_from_path('parse', path = file.path('..', 'data', 'processing'))
 
 source('util.R', local = TRUE)
 
 # loadfonts(device = 'win') [run this the first time loading extrafont]
+
 samplePath = file.path('www', 'clip.wav')
 
 ## AUDIO VISUALIZATION ##############################
 
 # return a plot of a spectrogram 
-plotSpectrogram <- function(audioPath, startTime = 45.0, endTime = 55.0, saveMP4 = FALSE) {
+plotSpectrogram <- function(audioPath, startTime = 15.0, endTime = 25.0, saveMP4 = FALSE) {
   fft_data <- av::read_audio_fft(audioPath, start_time = startTime, 
                                  end_time = endTime)
   # save sample clip for output
@@ -98,7 +100,18 @@ getNoteData <- function(chartPath) {
 
 ###########################################################
 
-## CHART VISUALIZATION ####################################
+## CHART/Model VISUALIZATION ####################################
+
+# plot model peak picking scores for the given range
+plotPeakPicking <- function(modelPeaks, startTime = 15.0, endTime = 25.0) {
+  # modelPeaks is a list of lists, each sublist with 2 elems: time + peak score
+  peaks <- data.frame(time = sapply(modelPeaks, function(x) x[[1]]),
+                      prob = sapply(modelPeaks, function(x) x[[2]]))
+  peaks <- filter(peaks, time >= startTime & time <= endTime)
+  
+  ggplot(peaks, aes(x = time, y = prob)) +
+    geom_line()
+}
 
 notePositions <- list(top = '[1368]', center = '[27]', bottom = '[0459]')
 
@@ -140,7 +153,7 @@ grobHeight.custom_axis = heightDetails.custom_axis = function(x, ...) {
 
 # produce a plot of step chart section (i.e. a still-shot of a stepchart)
 # noteData should be an m x 2 df, with observations of time/step
-plotChartSection <- function(noteData, startTime = 45.0, endTime = 55.0, epsilon = 1e-5) {
+plotChartSection <- function(noteData, startTime = 15.0, endTime = 25.0, epsilon = 1e-5) {
   num_arrows <- nchar(as.character(noteData[1, 'step']))
   noteData <- filter(noteData, time >= startTime & time <= endTime)
   

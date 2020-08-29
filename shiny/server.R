@@ -7,10 +7,11 @@ source('generate.R', local = TRUE)
 source('visualize.R', local = TRUE)
 
 server <- function(input, output, session) {
+  chartData <- NULL
   
   # update model summary text
   output$model_summary <- renderText({
-    getModelSummary(input$model)
+    getModelSummary(input$model, as_str = TRUE)
   })
   
   # update level slider and model options based on chart type
@@ -48,30 +49,29 @@ server <- function(input, output, session) {
   
   # save the chart once it's been generated
   output$download_chart <- downloadHandler(
-    filename = function () {
-      if(length(chartData[['saveFormats']]) > 1) {
-        ext = '.zip'
+    filename = function() {
+      if(is.null(chartData)) {
+        ''
       } else {
-        ext = chartData[['saveFormats']][0]
+        paste0(chartData()[['name']], '.zip') 
       }
-      
-      # use same name as audio file
-      paste0(chartData[['name']], ext)
     },
-    content = saveCharts
+    content = saveCharts # see generate.R
   )
   
-  # produce model output plots after generation
-  
+  # produce model peak-picking plot
+  output$model_peak_picking_plot <- renderPlot({
+    plotPeakPicking(chartData()[['peaks']])
+  })
   
   # produce chart visualizations
   output$chart_section_plot <- renderPlot({
-    plotChartSection(chartData[['notes']])
-  }, height = 360, width = 600)
+    plotChartSection(chartData()[['notes']])
+  }, height = 500, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
-    plotChartDistribution(chartData[['notes']])
-  }, height = 400, width = 600)
+    plotChartDistribution(chartData()[['notes']])
+  }, height = 500, width = 900)
 }
 
 # to deploy to shinyapps.io

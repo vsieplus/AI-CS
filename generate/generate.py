@@ -13,17 +13,17 @@ sys.path.append(os.path.join('..', 'train'))
 from hyper import N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer import ArrowTransformer
-from stepchart import step_features_to_str, step_index_to_features, UCS_SSC_DICT
 from extract_audio_feats import extract_audio_feats
-import train_rnns
-import util
+from step_tokenize import step_features_to_str, step_index_to_features, UCS_SSC_DICT
+from predict_placements import predict_placements
+import train_util
 
-BEATS_PER_MEASURE = 4
-SPLITS_PER_BEAT = 32
+BEATS_PER_MEASURE = 16
+SPLITS_PER_BEAT = 8
 SPLIT_SUBDIV = SPLITS_PER_BEAT * BEATS_PER_MEASURE   # splits per measure
 
 # SPLITS_PER_BEAT = 1 / ((FAKE_BPM / 60 ) / CHART_FRAME_RATE)
-# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split 
+# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split > ~770bpm (lol)
 FAKE_BPM = 60 * (CHART_FRAME_RATE / SPLITS_PER_BEAT)
 
 def parse_args() -> argparse.Namespace:
@@ -37,8 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--song_artist', type=str, help='song artist')
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=50, help='the k to use in top-k sampling')
-    parser.add_argument('-p', type=int, default=0.9, help='the p to use in top-p sampling')
+    parser.add_argument('-k', type=int, default=25, help='the k to use in top-k sampling')
+    parser.add_argument('-p', type=int, default=0.01, help='the p to use in top-p sampling')
 
     return parser.parse_args()
 
@@ -64,19 +64,31 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
 
     splits = []
     curr_holds = set()
-    curr_steps = set()
     for i in range(max_num_splits):
         curr_note = ten_ms_frames_to_steps.get(i, blank_note)
-        curr_note, _, _ = filter_steps(curr_note, curr_holds, curr_steps, dense=True)
+
+        filtered_note = ''
+
+        # fill frames in between hold steps
+        for j, step in enumerate(curr_note):
+            if step == '.' and j in curr_holds:
+                step = 'H'
+            elif step == 'M':
+                curr_holds.add(j)
+            elif step == 'W':
+                # TODO find bug
+                curr_holds.remove(j)
         
-        splits.append(curr_note)
+            filtered_note += step
+            
+        splits.append(filtered_note)
 
     charts_to_save = []
 
     if chart_format == 'ucs' or chart_format == 'both':
-        # 100ms for chart delay
+        # 100ms for delay
         chart_attrs = { 'Format': 1, 'Mode': 'Single' if chart_type == 'pump-single' else 'Double',
-                        'BPM': FAKE_BPM, 'Delay': 100, 'Beat': BEATS_PER_MEASURE, 'Split': SPLITS_PER_BEAT }
+                        'BPM': FAKE_BPM, 'Delay': 0, 'Beat': BEATS_PER_MEASURE, 'Split': SPLITS_PER_BEAT }
 
         chart_txt = ''
         for key, val in chart_attrs.items():
@@ -114,8 +126,8 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
     # copy the original audio file
     shutil.copy(audio_file, out_dir)
 
-def generate_chart(placement_model, selection_model, audio_file, chart_type, 
-                   chart_level, n_step_features, special_tokens, sampling, k, p, device):
+def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, 
+                   n_step_features, special_tokens, sampling, k, p, device=torch.device('cpu')):
     placement_model.eval()
     selection_model.eval()
 
@@ -149,8 +161,11 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type,
         # [batch=1, n_audio_frames, 2] / [batch=1, n_audio_frames, hidden] / ...
         logits, placement_hiddens, _ = placement_model(audio_feats, chart_feats, states, audio_length)
 
-        # placement predictions - [n_audio_frames] - 1 if a placement, 0 if empty
-        placements = train_rnns.predict_placements(logits, [chart_level], audio_length).squeeze(0)
+        # placement predictions - [batch=1, n_audio_frames] - 1 if a placement, 0 if empty
+        placements, peaks = predict_placements(logits, [chart_level], audio_length, get_probs=True)
+
+        placements = placements.squeeze(0)
+        peaks = peaks.squeeze(0)
 
         placement_frames = (placements == 1).nonzero(as_tuple=False).flatten()
         num_placements = int(placements.sum().item())
@@ -164,7 +179,7 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type,
         
         for i in trange(num_placements):
             placement_melframe = placement_frames[i].item()
-            placement_time = util.convert_melframe_to_secs(placement_melframe, sample_rate)
+            placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
 
             if i == 0:
                 start_token = torch.zeros(1, 1, n_step_features, device=device)
@@ -201,14 +216,10 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type,
 
             chart_data.append([placement_time, next_token_str])
    
-    return chart_data
+    return chart_data, peaks
 
-def filter_steps(token_str, hold_indices, step_indices, dense=False):
-    # filter out step exceptions:
-    #  - cannot release 'W' if not currently held
-    #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' 
-    #    otherwise, change the first 'H' -> 'M'
-
+def filter_steps(token_str, hold_indices, step_indices):
+    # filter out step exceptions
     new_token_str = ''
     new_hold_indices = []
     released_indices = []
@@ -217,6 +228,7 @@ def filter_steps(token_str, hold_indices, step_indices, dense=False):
         token = token_str[j]
         curr_step_hold = j in hold_indices
 
+        #  - cannot release 'W' if not currently held
         if token == 'W':
             if not curr_step_hold:
                 token = '.'
@@ -225,12 +237,16 @@ def filter_steps(token_str, hold_indices, step_indices, dense=False):
                 hold_indices.remove(j)
         elif token == 'H' and not curr_step_hold:
             hold_indices.add(j)
-            if j not in step_indices:
-                token = 'M'
-            else:
+            
+            #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' 
+            #    otherwise, change the first 'H' -> 'M' (hold start)
+            if j in step_indices:
                 new_hold_indices.append(j)
                 step_indices.remove(j)
+            else:
+                token = 'M'
         elif token == 'X':
+            # if 'X' comes directly after 'H', change the previous 'H' to 'W' (release)
             if curr_step_hold:
                 released_indices.append(j)
                 hold_indices.remove(j)
@@ -239,12 +255,10 @@ def filter_steps(token_str, hold_indices, step_indices, dense=False):
         elif token == '.':
             step_indices.discard(j)
 
+            # if blank after a 'H', change current step to 'W'
             if curr_step_hold:
-                if dense:
-                    token = 'H'
-                else:
-                    token = 'W'
-                    hold_indices.remove(j)
+                token = 'W'
+                hold_indices.remove(j)
              
         new_token_str += token
 
@@ -286,16 +300,8 @@ def predict_step(logits, sampling, k, p):
         pred_idx = torch.multinomial(dist, num_samples=1)
 
     return pred_idx
-
-def main():
-    args = parse_args()
-
-    device = torch.device('cpu')
-
-    print('Loading models....')
-    with open(os.path.join(args.model_dir, 'summary.json'), 'r') as f:
-        model_summary = json.loads(f.read())
-
+    
+def get_gen_config(model_summary, model_dir, device):
     if model_summary['type'] == 'rnns':
         placement_model = PlacementCLSTM(model_summary['placement_channels'], model_summary['placement_filters'], 
                                          model_summary['placement_kernels'], model_summary['placement_pool_kernel'],
@@ -307,20 +313,33 @@ def main():
                                        model_summary['selection_hidden_wt']).to(device)
 
         # loads the state dicts from the .bin files in model_dir/
-        train_rnns.load_save(args.model_dir, False, placement_model, selection_model, device)
+        train_util.load_save(model_dir, False, placement_model, selection_model, device)
     elif model_summary['type'] == 'transformer':
         pass
 
-    if os.path.isfile(os.path.join(args.model_dir, 'special_tokens.json')):
-        with open(os.path.join(args.model_dir, 'special_tokens.json'), 'r') as f:
+    if os.path.isfile(os.path.join(model_dir, 'special_tokens.json')):
+        with open(os.path.join(model_dir, 'special_tokens.json'), 'r') as f:
             special_tokens = json.loads(f.read())
     else:
         special_tokens = None
+        
+    return placement_model, selection_model, special_tokens
+
+def main():
+    args = parse_args()
+
+    device = torch.device('cpu')
+
+    print('Loading models....')
+    with open(os.path.join(args.model_dir, 'summary.json'), 'r') as f:
+        model_summary = json.loads(f.read())
+
+    placement_model, selection_model, special_tokens = get_gen_config(model_summary, args.model_dir, device)
 
     # a list of pairs of (absolute time (s), step [ucs str format])
-    chart_data = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
-                                args.level, model_summary['selection_input_size'], special_tokens, 
-                                args.sampling, args.k, args.p, device)
+    chart_data, _ = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
+                                   args.level, model_summary['selection_input_size'], special_tokens, 
+                                   args.sampling, args.k, args.p, device)
 
     # convert indices -> chart output format + save to file
     save_chart(chart_data, model_summary['chart_type'], args.level, args.chart_format, args.song_name,
