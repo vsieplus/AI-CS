@@ -14,8 +14,8 @@ from pathlib import Path
 from joblib import Memory
 
 from extract_audio_feats import extract_audio_feats, load_audio
-from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, 
-				   NUM_ARROW_STATES, MAX_ACTIVE_ARROWS, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES)
+from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, SELECTION_VOCAB_SIZES)
+from step_tokenize import sequence_to_tensor, step_sequence_to_targets, step_features_to_str, step_index_to_features
 from util import convert_chartframe_to_melframe
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
@@ -28,8 +28,10 @@ R_CHART_UTIL_PATH = os.path.join(ABS_PATH, '..', 'shiny', 'util.R')
 memory = Memory(CACHE_DIR, verbose=0, compress=True)
 # to reset cache: memory.clear(warn=False)
 
-# add caching to extract_audio_feats
+# add caching to extract_audio_feats and some seq. conversion functions
 extract_audio_feats = memory.cache(extract_audio_feats)
+sequence_to_tensor = memory.cache(sequence_to_tensor)
+step_sequence_to_targets = memory.cache(step_sequence_to_targets)
 
 # import chart util functions from r script
 robj.r.source(R_CHART_UTIL_PATH)	
@@ -291,48 +293,6 @@ STEP_PATTERNS = {
 	'ssc': re.compile('[1-3]')
 }
 
-UCS_SSC_DICT = {
-	'.': '0',   # no step
- 	'X': '1',   # normal step
- 	'M': '2',   # start hold
- 	'H': '0',   # hold (0 between '2' ... '3' in ssc)
- 	'W': '3',   # release hold
-}
-
-# symbols used in step representation
-UCS_STATE_DICT = {
-	'.': 0,		# off
-	'X': 1,		# on
-	'M': 1,		# on
-	'H': 2,		# held
-	'W': 3		# released
-}
-
-# convert a sequence of steps ['00100', '10120', ...] -> input tensor
-@memory.cache
-def sequence_to_tensor(sequence):
-	# shape [abs # of frames, 4 x # arrows (20 for single, 40 for double)]
-	#   (for each arrow, mark 1 of 4 possible states - off, step, hold, release)
-	#	(should be already converted to UCS notation)
-	# eg. ['10002', '01003'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
-	#                             -downleft-   -upleft- ....   -downright-
-	#                            [0, 0, 0, 0, 0, 1, 0, 0, ..., 0, 0, 0, 1]]
-	step_tensors = []
-
-	num_steps = len(sequence[0])
-
-	for step in sequence:
-		symbol_tensors = []
-		for i, symbol in enumerate(step):
-			arrow_i_state = torch.zeros(NUM_ARROW_STATES)
-			arrow_i_state[UCS_STATE_DICT[symbol]] = 1
-			symbol_tensors.append(arrow_i_state)
-
-		# convert symbols -> concatenated one hot encodings
-		step_tensors.append(torch.cat(symbol_tensors))
-
-	return torch.cat(step_tensors).view(-1, NUM_ARROW_STATES * num_steps)
-
 @memory.cache
 def permute_steps(steps, chart_type, permutation_type):
 	# permutation numbers signify moved location of original step
@@ -374,79 +334,6 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	return step_placement_frames, step_sequence
 
 @memory.cache
-def step_sequence_to_targets(step_input, chart_type, special_tokens):
-	"""
-	given a (sequence) of step inputs, return a tensor containing the corresponding vocabulary indices
-		in: step_input - shape [seq length, chart_features], tensor representations of (nonempty) steps
-			chart_type - 'pump-single' or 'pump-double'
-			special_tokens - predefined special token indices/values in the chart's dataset,
-							 use for doubles charts with 5+ activated arrows at a time
-		out: targets - shape [seq length], values in range [0, vocab size - 1]
-	"""
-	num_arrows = step_input.size(1) // NUM_ARROW_STATES
-	targets = torch.zeros(step_input.size(0), dtype=torch.long)
-	n_special_tokens = 0
-
-	for s in range(step_input.size(0)):
-		# index in order of: num active arrows [0, ..., num_arrows - 1]
-		# 				  -> arrow indices [0, ..., num_arrows - 1] x num_active_arrows
-		#				  -> arrow states [1, ..., num_arrow_states - 1] (ignore off)
-
-		# step_index =  SUM_{k=0->num_active - 1} (num_arrows choose k) * 3 ^ k +
-		#				SUM_{i' < i} ... SUM_{j' < j} 3 ^ num_active +
-		#				SUM_{x1, .., x_num_active} (x_i - 1) * 3 ^ i (base 3 R -> L)
-		#	[i' = first index L->R, i = true first index, j', j = zth index, z = num active arrows]
-		idx = 0
-
-		active_arrow_states = []
-		active_arrow_indices = []
-		for i in range(num_arrows):
-			start = i * NUM_ARROW_STATES
-			arrow_state = (step_input[s, start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
-
-			if arrow_state != 0:
-				active_arrow_indices.append(i)
-				active_arrow_states.append(arrow_state)
-
-		num_active_arrows = len(active_arrow_indices)
-
-		# if num active exceed maximum, add to end of special tokens
-		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
-			curr_step = step_features_to_str(step_input[s])
-			if curr_step not in special_tokens.values():
-				special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
-				special_tokens[special_idx] = curr_step
-				n_special_tokens += 1
-			else:
-				for k,v in special_tokens.items():
-					if v == curr_step:
-						special_idx = k
-						break
-			targets[s] = special_idx
-			continue
-
-		for num_active in range(num_active_arrows):
-			idx += math.comb(num_arrows, num_active) * (3 ** num_active)
-
-		first_possible_idx = 0
-		for k, arrow_idx in enumerate(active_arrow_indices):
-			if arrow_idx > first_possible_idx:
-				# count over the possible arrangements of steps that use the skipped indices
-				for skipped_idx in range(first_possible_idx, arrow_idx):
-					idx += (3 ** num_active_arrows) * calc_arrangements(skipped_idx, len(active_arrow_indices) - k, num_arrows - 1)
-			
-			first_possible_idx = arrow_idx + 1
-		
-		# base 3 R -> L
-		active_arrow_states.reverse()
-		for a, state in enumerate(active_arrow_states):
-			idx += (state - 1) * (3 ** a)
-
-		targets[s] = idx
-
-	return targets, n_special_tokens
-
-@memory.cache
 def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
 	placement_target = torch.zeros(audio_length, dtype=torch.long)
@@ -469,97 +356,6 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 
 	return placement_target, first_frame, last_frame
 
-def step_index_to_features(index, chart_type, special_tokens, device):
-	""" convert a step index to its corresponding feature tensor """
-
-	if special_tokens and index in special_tokens:
-		return sequence_to_tensor([special_tokens[index]])
-
-	# perform 'inverse' of step_sequence_to_targets()
-	features = torch.zeros(SELECTION_INPUT_SIZES[chart_type], dtype=torch.long, device=device)
-	num_arrows = features.size(0) // NUM_ARROW_STATES
-	off_indices = torch.tensor([arrow * NUM_ARROW_STATES for arrow in range(num_arrows)], dtype=torch.long,
-								device=device)
-	features[off_indices] = 1
-
-	num_active_arrows = 0
-	tracking_index = 0
-
-	# determine no. of active arrows
-	for num_active in range(num_arrows + 1):
-		n_steps = math.comb(num_arrows, num_active) * (3 ** num_active)
-
-		if index < tracking_index + n_steps:
-			num_active_arrows = num_active
-			break
-		else:
-			tracking_index += n_steps
-
-	if num_active_arrows > 0:
-		# determine which arrows are active
-		active_indices = []
-
-		states_per_arrangement = 3 ** num_active_arrows
-
-		# all steps with first possible index enumerated first
-		for arrow_idx in range(num_arrows):
-			# find number of arrangements for steps starting w/current index
-			n_arrangements = calc_arrangements(arrow_idx, num_active_arrows - len(active_indices), num_arrows - 1)
-			if index < tracking_index + (n_arrangements * states_per_arrangement):
-				active_indices.append(arrow_idx)
-			else:
-				tracking_index += n_arrangements * states_per_arrangement
-
-			if len(active_indices) == num_active_arrows:
-				break
-
-		# determine the states of each arrow
-		arrow_states = []
-		for a in range(num_active_arrows):
-			for state in range(1, NUM_ARROW_STATES):
-				n_state_arrangements = (3 ** (num_active_arrows - a - 1))
-				if index < tracking_index + n_state_arrangements:
-					arrow_states.append(state)
-					break
-				else:
-					tracking_index += n_state_arrangements
-
-		for idx, state in zip(active_indices, arrow_states):
-			features[(idx * NUM_ARROW_STATES)] = 0
-			features[(idx * NUM_ARROW_STATES) + state] = 1
-
-	return features
-
-def calc_arrangements(starting_index, num_indices, max_index):
-	""" return the number of arrangements of increasing indices from starting_index -> max_index"""
-	if num_indices == 1:
-		return 1 # only the singleton arrangement [starting_index]
-	else:
-		return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
-					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
-
-def step_features_to_str(features, out_format='ucs'):
-	""" convert step features to their string representation"""
-	num_arrows = features.size(0) // NUM_ARROW_STATES
-	result = ''
-
-	if out_format == 'ucs':
-		for arrow in range(num_arrows):
-			start = arrow * NUM_ARROW_STATES
-			state_idx = (features[start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
-
-			if state_idx == 0:
-				result += '.'
-			elif state_idx == 1:
-				result += 'X'
-			elif state_idx == 2:
-				result += 'H'
-			elif state_idx == 3:
-				result += 'W'
-	elif out_format == 'ssc':
-		raise NotImplementedError
-
-	return result
 
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""

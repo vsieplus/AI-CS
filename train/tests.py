@@ -2,8 +2,7 @@ import unittest
 
 import torch
 
-from stepchart import (step_index_to_features, step_sequence_to_targets, 
-						sequence_to_tensor, step_features_to_str)
+from step_tokenize import step_features_to_str, step_index_to_features, step_sequence_to_targets, sequence_to_tensor
 
 d = torch.device('cpu')
 
