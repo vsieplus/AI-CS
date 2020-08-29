@@ -37,8 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--song_artist', type=str, help='song artist')
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=50, help='the k to use in top-k sampling')
-    parser.add_argument('-p', type=int, default=0.9, help='the p to use in top-p sampling')
+    parser.add_argument('-k', type=int, default=20, help='the k to use in top-k sampling')
+    parser.add_argument('-p', type=int, default=0.005, help='the p to use in top-p sampling')
 
     return parser.parse_args()
 

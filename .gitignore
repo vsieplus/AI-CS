@@ -13,3 +13,5 @@ train/models/*
 shiny/www/*
 shiny/models/*
 shiny/test/*
+generate/audio/*
+generate/charts/*
