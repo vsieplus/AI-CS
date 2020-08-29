@@ -3,7 +3,7 @@
 import math
 from torch.nn import CrossEntropyLoss
 
-SEED = 1949
+SEED = 1950
 
 PAD_IDX = -1
 

@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
     parser.add_argument('--retrain', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
+    parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
 
     args = parser.parse_args()
 
@@ -572,10 +573,10 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         'selection_test_accuracy': selection_test_acc
     }
 
-    model_summary = log_training_stats(writer, dataset, summary_json)
+    summary_json = log_training_stats(writer, dataset, summary_json)
 
     with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
-        f.write(json.dumps(model_summary, indent=2))
+        f.write(json.dumps(summary_json, indent=2))
 
     # save special tokens for dataset vocabulary if needed
     if dataset.special_tokens:
@@ -627,7 +628,7 @@ def log_training_stats(writer, dataset, summary_json):
         'selection_lstm_layers': NUM_SELECTION_LSTM_LAYERS,
         'selection_input_size': SELECTION_INPUT_SIZES[dataset.chart_type],
         'type': 'rnns',
-        'dataset_name': dataset.name,
+        'name': dataset.name,
         'chart_type': dataset.chart_type,
         'song_types': dataset.songtypes,
         'step_artists': dataset.step_artists,
@@ -644,8 +645,7 @@ def get_dataloader(dataset):
 def main():
     args = parse_args()
 
-    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cpu')
+    device = torch.device('cpu') if args.cpu else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Device:', device)
     torch.manual_seed(SEED)
 
