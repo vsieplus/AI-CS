@@ -1,9 +1,10 @@
 import gc
+import os
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
 
-from hyper import HOP_LENGTH, CHART_FRAME_RATE
+from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, CHECKPOINT_SAVE
 
 # avoid subdirs clutter when adding hparams with summary writer
 class SummaryWriter(SummaryWriter):
@@ -55,3 +56,62 @@ def convert_chartframe_to_melframe(frame, sample_rate, hop_length=HOP_LENGTH, ch
 
 def convert_melframe_to_secs(melframe, sample_rate, hop_length=HOP_LENGTH):
     return (hop_length * melframe) / sample_rate
+    
+## Model saving/loading #####################################    
+    
+def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, 
+                    best_selection_valid_loss, train_clstm, train_srnn, save_dir):
+    out_path = os.path.join(save_dir, CHECKPOINT_SAVE)
+    
+    print(f'\tSaving checkpoint to {out_path}')
+    torch.save({
+        'epoch': epoch,
+        'curr_epoch_batch': curr_epoch_batch,
+        'best_placement_valid_loss': best_placement_valid_loss,
+        'best_selection_valid_loss': best_selection_valid_loss,
+        'train_clstm': train_clstm,
+        'train_srnn': train_srnn,
+    }, out_path)
+
+def save_model(model, save_dir, model_filename):
+    out_path = os.path.join(save_dir, model_filename)
+    print(f'\tSaving model to {out_path}')
+
+    torch.save(model.state_dict(), out_path)
+
+def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
+    print(f'Loading checkpoint from {save_dir}...')
+
+    clstm_path = os.path.join(save_dir, CLSTM_SAVE)
+    srnn_path = os.path.join(save_dir, SRNN_SAVE)
+    
+    if os.path.isfile(clstm_path):
+        placement_clstm.load_state_dict(torch.load(clstm_path, map_location=device))
+    else:
+        print(f'No saved {CLSTM_SAVE} file found in {save_dir}, starting from base model')
+
+    if os.path.isfile(srnn_path):
+        selection_rnn.load_state_dict(torch.load(srnn_path, map_location=device))
+    else:
+        print(f'No saved {SRNN_SAVE} file found in {save_dir}, starting from base model')
+
+    checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
+
+    # only restore epoch/best loss values when not retraining    
+    # (i.e. give option to retrain some more on an already trained model)       
+    if not retrain:
+        start_epoch = checkpoint['epoch']
+        start_epoch_batch = checkpoint['curr_epoch_batch']
+        best_placement_valid_loss = checkpoint['best_placement_valid_loss']
+        best_selection_valid_loss = checkpoint['best_selection_valid_loss']
+        train_clstm = checkpoint['train_clstm']
+        train_srnn = checkpoint['train_srnn']
+
+        # use last directory under save_dir/runs
+        logdirs = [d for d in os.listdir(os.path.join(save_dir, 'runs'))]
+        sub_logdir = [d for d in logdirs if os.path.isdir(os.path.join(save_dir, 'runs', d))][-1]
+
+        return (start_epoch, start_epoch_batch, best_placement_valid_loss, 
+                best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
+    else:
+        return None

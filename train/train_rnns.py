@@ -8,8 +8,6 @@ import json
 import os
 from pathlib import Path
 
-import numpy as np
-from scipy.signal import argrelextrema
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,8 +18,9 @@ from tqdm import tqdm, trange
 
 from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
+from predict_placements import predict_placements
 from stepchart import StepchartDataset, get_splits, collate_charts
-from util import report_memory, SummaryWriter
+from util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
@@ -55,87 +54,6 @@ def parse_args() -> argparse.Namespace:
         os.makedirs(args.save_dir)
 
     return args
-
-def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, 
-                    best_selection_valid_loss, train_clstm, train_srnn, save_dir):
-    out_path = os.path.join(save_dir, CHECKPOINT_SAVE)
-    
-    print(f'\tSaving checkpoint to {out_path}')
-    torch.save({
-        'epoch': epoch,
-        'curr_epoch_batch': curr_epoch_batch,
-        'best_placement_valid_loss': best_placement_valid_loss,
-        'best_selection_valid_loss': best_selection_valid_loss,
-        'train_clstm': train_clstm,
-        'train_srnn': train_srnn,
-    }, out_path)
-
-def save_model(model, save_dir, model_filename):
-    out_path = os.path.join(save_dir, model_filename)
-    print(f'\tSaving model to {out_path}')
-
-    torch.save(model.state_dict(), out_path)
-
-def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
-    print(f'Loading checkpoint from {save_dir}...')
-
-    clstm_path = os.path.join(save_dir, CLSTM_SAVE)
-    srnn_path = os.path.join(save_dir, SRNN_SAVE)
-    
-    if os.path.isfile(clstm_path):
-        placement_clstm.load_state_dict(torch.load(clstm_path, map_location=device))
-    else:
-        print(f'No saved {CLSTM_SAVE} file found in {save_dir}, starting from base model')
-
-    if os.path.isfile(srnn_path):
-        selection_rnn.load_state_dict(torch.load(srnn_path, map_location=device))
-    else:
-        print(f'No saved {SRNN_SAVE} file found in {save_dir}, starting from base model')
-
-    checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
-
-    # only restore epoch/best loss values when not retraining    
-    # (i.e. give option to retrain some more on an already trained model)       
-    if not retrain:
-        start_epoch = checkpoint['epoch']
-        start_epoch_batch = checkpoint['curr_epoch_batch']
-        best_placement_valid_loss = checkpoint['best_placement_valid_loss']
-        best_selection_valid_loss = checkpoint['best_selection_valid_loss']
-        train_clstm = checkpoint['train_clstm']
-        train_srnn = checkpoint['train_srnn']
-
-        # use last directory under save_dir/runs
-        logdirs = [d for d in os.listdir(os.path.join(save_dir, 'runs'))]
-        sub_logdir = [d for d in logdirs if os.path.isdir(os.path.join(save_dir, 'runs', d))][-1]
-
-        return (start_epoch, start_epoch_batch, best_placement_valid_loss, 
-                best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
-    else:
-        return None
-
-def predict_placements(logits, levels, lengths):
-    """given a sequence of logits from a placement model, predict which positions have steps.
-        input:  logits [batch, unroll_length, 2]
-                levels [batch] - chart levels used to pick cutoff for a step prediction
-                lengths: [batch] for each example, current length
-        output: predictions [batch, unroll_length]; 1 -> step, 0 -> no step
-    """
-    # compute probability dists. for each timestep [batch, unroll, 2]
-    probs = F.softmax(logits, dim=-1)
-
-    # [batch, unroll (lengths)]
-    predictions = torch.zeros(logits.size(0), logits.size(1))
-    for b in range(logits.size(0)):
-        # from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py
-        probs_smoothed = np.convolve(probs[b, :, 1].numpy(), np.hamming(5), 'same')
-        maxima = argrelextrema(probs_smoothed, np.greater_equal, order=1)[0]
-
-        for i in maxima:
-            predictions[b, i] = probs[b, i, 1] >= PLACEMENT_THRESHOLDS[levels[b] - 1]
-
-        # predictions[b, :lengths[b]] = probs[b, :lengths[b],  1] >= PLACEMENT_THRESHOLDS[levels[b]]
-
-    return predictions
 
 def get_placement_accuracy(predictions, targets, lengths):
     """get placement accuracy between given predictions/targets"""
