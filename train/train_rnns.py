@@ -573,10 +573,10 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         'selection_test_accuracy': selection_test_acc
     }
 
-    model_summary = log_training_stats(writer, dataset, summary_json)
+    summary_json = log_training_stats(writer, dataset, summary_json)
 
     with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
-        f.write(json.dumps(model_summary, indent=2))
+        f.write(json.dumps(summary_json, indent=2))
 
     # save special tokens for dataset vocabulary if needed
     if dataset.special_tokens:
@@ -628,7 +628,7 @@ def log_training_stats(writer, dataset, summary_json):
         'selection_lstm_layers': NUM_SELECTION_LSTM_LAYERS,
         'selection_input_size': SELECTION_INPUT_SIZES[dataset.chart_type],
         'type': 'rnns',
-        'dataset_name': dataset.name,
+        'name': dataset.name,
         'chart_type': dataset.chart_type,
         'song_types': dataset.songtypes,
         'step_artists': dataset.step_artists,
