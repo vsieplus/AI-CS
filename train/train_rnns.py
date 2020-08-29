@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--save_dir', type=str, default=None, 
                         help="""Specify custom output directory to save models to. If blank, will save in ./models/dataset_name/""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
-    parser.add_argument('--retrain', action='store_true', default=False, help=('Use this option to (re)train a model that'
+    parser.add_argument('--finetune', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
     parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
 
@@ -300,11 +300,11 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
                                                      curr_seq_lengths, step)
 
         if do_train:
-			# TODO fix
-			try:
-				loss.backward()
-			except:
-				continue
+            # TODO fix
+            try:
+                loss.backward()
+            except AttributeError:
+                continue
             nn.utils.clip_grad_norm_(rnn.parameters(), max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()
@@ -345,7 +345,7 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
             total_s_loss / len(data_iter), total_s_acc / len(data_iter))
 
 # full training process from placement -> selection
-def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, retrain, 
+def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, finetune, 
                dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
@@ -369,7 +369,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M')
   
     if load_checkpoint:
-        checkpoint = load_save(load_checkpoint, retrain, placement_clstm, selection_rnn, device)
+        checkpoint = load_save(load_checkpoint, finetune, placement_clstm, selection_rnn, device)
         if checkpoint:
             (start_epoch, start_epoch_batch, best_placement_valid_loss, 
              best_selection_valid_loss, train_clstm, train_srnn, sub_logdir) = checkpoint
@@ -569,9 +569,12 @@ def main():
     dataset = StepchartDataset(args.dataset_path)
 
     if not args.save_dir:
-        # models/{single/double}/dataset_name/...
-        args.save_dir = os.path.join(MODELS_DIR, dataset.chart_type.split('-')[-1],
-                                     os.path.split(args.dataset_path)[-1].split('.')[0])
+        if args.load_checkpoint:
+            args.save_dir = args.load_checkpoint
+        else:	
+            # models/{single/double}/dataset_name/...
+            args.save_dir = os.path.join(MODELS_DIR, dataset.chart_type.split('-')[-1],
+                                         os.path.split(args.dataset_path)[-1].split('.')[0])
 
     if not os.path.isdir(args.save_dir):
         os.makedirs(args.save_dir)
@@ -586,7 +589,7 @@ def main():
     print(datasets_size_str)
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
-               args.load_checkpoint, args.retrain, dataset)
+               args.load_checkpoint, args.finetune, dataset)
 
 if __name__ == '__main__':
     main()

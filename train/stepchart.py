@@ -16,7 +16,7 @@ from joblib import Memory
 from extract_audio_feats import extract_audio_feats, load_audio
 from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, SELECTION_VOCAB_SIZES)
 from step_tokenize import sequence_to_tensor, step_sequence_to_targets, step_features_to_str, step_index_to_features
-from util import convert_chartframe_to_melframe
+from train_util import convert_chartframe_to_melframe
 
 # cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
 ABS_PATH = str(Path(__file__).parent.absolute())
