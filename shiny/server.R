@@ -7,6 +7,7 @@ source('generate.R', local = TRUE)
 source('visualize.R', local = TRUE)
 
 server <- function(input, output, session) {
+  chartData <- NULL
   
   # update model summary text
   output$model_summary <- renderText({
@@ -48,22 +49,28 @@ server <- function(input, output, session) {
   
   # save the chart once it's been generated
   output$download_chart <- downloadHandler(
-    filename =  paste0(chartData[['name']], '.zip'),
+    filename = function() {
+      if(is.null(chartData)) {
+        ''
+      } else {
+        paste0(chartData()[['name']], '.zip') 
+      }
+    },
     content = saveCharts # see generate.R
   )
   
   # produce model peak-picking plot
   output$model_peak_picking_plot <- renderPlot({
-    plotPeakPicking(chartData[['peaks']])
+    plotPeakPicking(chartData()[['peaks']])
   })
   
   # produce chart visualizations
   output$chart_section_plot <- renderPlot({
-    plotChartSection(chartData[['notes']])
+    plotChartSection(chartData()[['notes']])
   }, height = 500, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
-    plotChartDistribution(chartData[['notes']])
+    plotChartDistribution(chartData()[['notes']])
   }, height = 500, width = 900)
 }
 

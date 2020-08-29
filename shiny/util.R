@@ -28,3 +28,27 @@ convertToUCS <- function(steps) {
   steps <- gsub('0|[^MWHX]', '.', steps)
   steps  
 }
+
+# get a list of directories in root/, and their respective paths
+getModelDirs <- function(root) {
+  dirnames <- list.dirs(root, full.names  =  FALSE, recursive = FALSE)
+  dirpaths <- list.dirs(root, full.names  =  TRUE, recursive = FALSE)
+  names(dirpaths) = dirnames
+  
+  dirpaths
+}
+
+# you can change modelsDir (relative path) to another folder containing
+# your models when running locally; should have structure
+# models/
+#   single/
+#     ...
+#   double/
+#     model1/
+#       model.bin (the model file(s) itself saved from training)
+#       summary.json (produced at end of training)
+#     ...
+modelsDir <- file.path('..', 'train', 'models')
+#modelsDir <- 'models'
+modelTypes <- c('single', 'double')
+modelsList <- lapply(sapply(modelTypes, function(x) file.path(modelsDir, x)), getModelDirs)
