@@ -20,7 +20,7 @@ from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from predict_placements import predict_placements
 from stepchart import StepchartDataset, get_splits, collate_charts
-from util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model
+from train_util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')

@@ -16,14 +16,14 @@ from arrow_transformer import ArrowTransformer
 from extract_audio_feats import extract_audio_feats
 from step_tokenize import step_features_to_str, step_index_to_features, UCS_SSC_DICT
 from predict_placements import predict_placements
-import util
+import train_util
 
-BEATS_PER_MEASURE = 4
-SPLITS_PER_BEAT = 32
+BEATS_PER_MEASURE = 16
+SPLITS_PER_BEAT = 8
 SPLIT_SUBDIV = SPLITS_PER_BEAT * BEATS_PER_MEASURE   # splits per measure
 
 # SPLITS_PER_BEAT = 1 / ((FAKE_BPM / 60 ) / CHART_FRAME_RATE)
-# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split 
+# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split > ~770bpm (lol)
 FAKE_BPM = 60 * (CHART_FRAME_RATE / SPLITS_PER_BEAT)
 
 def parse_args() -> argparse.Namespace:
@@ -37,8 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--song_artist', type=str, help='song artist')
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=20, help='the k to use in top-k sampling')
-    parser.add_argument('-p', type=int, default=0.005, help='the p to use in top-p sampling')
+    parser.add_argument('-k', type=int, default=25, help='the k to use in top-k sampling')
+    parser.add_argument('-p', type=int, default=0.01, help='the p to use in top-p sampling')
 
     return parser.parse_args()
 
@@ -64,19 +64,31 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
 
     splits = []
     curr_holds = set()
-    curr_steps = set()
     for i in range(max_num_splits):
         curr_note = ten_ms_frames_to_steps.get(i, blank_note)
-        curr_note, _, _ = filter_steps(curr_note, curr_holds, curr_steps, dense=True)
+
+        filtered_note = ''
+
+        # fill frames in between hold steps
+        for j, step in enumerate(curr_note):
+            if step == '.' and j in curr_holds:
+                step = 'H'
+            elif step == 'M':
+                curr_holds.add(j)
+            elif step == 'W':
+                # TODO find bug
+                curr_holds.remove(j)
         
-        splits.append(curr_note)
+            filtered_note += step
+            
+        splits.append(filtered_note)
 
     charts_to_save = []
 
     if chart_format == 'ucs' or chart_format == 'both':
-        # 100ms for chart delay
+        # 100ms for delay
         chart_attrs = { 'Format': 1, 'Mode': 'Single' if chart_type == 'pump-single' else 'Double',
-                        'BPM': FAKE_BPM, 'Delay': 100, 'Beat': BEATS_PER_MEASURE, 'Split': SPLITS_PER_BEAT }
+                        'BPM': FAKE_BPM, 'Delay': 0, 'Beat': BEATS_PER_MEASURE, 'Split': SPLITS_PER_BEAT }
 
         chart_txt = ''
         for key, val in chart_attrs.items():
@@ -167,7 +179,7 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
         
         for i in trange(num_placements):
             placement_melframe = placement_frames[i].item()
-            placement_time = util.convert_melframe_to_secs(placement_melframe, sample_rate)
+            placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
 
             if i == 0:
                 start_token = torch.zeros(1, 1, n_step_features, device=device)
@@ -206,7 +218,7 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
    
     return chart_data, peaks
 
-def filter_steps(token_str, hold_indices, step_indices, dense=False):
+def filter_steps(token_str, hold_indices, step_indices):
     # filter out step exceptions
     new_token_str = ''
     new_hold_indices = []
@@ -228,11 +240,11 @@ def filter_steps(token_str, hold_indices, step_indices, dense=False):
             
             #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' 
             #    otherwise, change the first 'H' -> 'M' (hold start)
-            if j not in step_indices:
-                token = 'M'
-            else:
+            if j in step_indices:
                 new_hold_indices.append(j)
                 step_indices.remove(j)
+            else:
+                token = 'M'
         elif token == 'X':
             # if 'X' comes directly after 'H', change the previous 'H' to 'W' (release)
             if curr_step_hold:
@@ -245,12 +257,8 @@ def filter_steps(token_str, hold_indices, step_indices, dense=False):
 
             # if blank after a 'H', change current step to 'W'
             if curr_step_hold:
-                # use dense when filling frames in between steps
-                if dense:
-                    token = 'H'
-                else:
-                    token = 'W'
-                    hold_indices.remove(j)
+                token = 'W'
+                hold_indices.remove(j)
              
         new_token_str += token
 
@@ -305,7 +313,7 @@ def get_gen_config(model_summary, model_dir, device):
                                        model_summary['selection_hidden_wt']).to(device)
 
         # loads the state dicts from the .bin files in model_dir/
-        util.load_save(model_dir, False, placement_model, selection_model, device)
+        train_util.load_save(model_dir, False, placement_model, selection_model, device)
     elif model_summary['type'] == 'transformer':
         pass
 
