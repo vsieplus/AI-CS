@@ -55,18 +55,18 @@ Train the CLSTM/RNN placement and selection models:
 
 ```bash
 # train a model on the dataset 'test_dataset' located in ../data/dataset/subsets/test_dataset.json
-# model saved > ./models/test_dataset/
+# model saved > ./models/{single/double}/test_dataset/
 python train_rnns.py --dataset_name=test_dataset
 
-# Train the arrow transformer model, similar as above > ./models/test_dataset/
+# Train the arrow transformer model, similar as above > ./models/{single/double}/test_dataset/
 # can specify --existing_placement=models/already_trained_model/clstm.bin to avoid training
 # another placement model from scratch
 python train_transformer.py --dataset_name=test_dataset 
 
 # visualize training stats/metrics (requires tensorboard)
-tensorboard --logdir=models/test_dataset/runs
+tensorboard --logdir=models/single/test_dataset/runs
 
 # To resume training from a checkpoint 
-# (use --retrain to start from epoch 0 but still load existing parameters)
-python train_rnns.py --load_checkpoint='models/test_dataset'
+# (use --retrain to start from epoch 0 but still load existing parameters, (e.g. for finetuning))
+python train_rnns.py --load_checkpoint='models/single/test_dataset'
 ```

@@ -39,9 +39,9 @@ class PlacementCNN(nn.Module):
                         for kernel_size in kernel_sizes]
         
         self.conv1 = nn.Conv2d(in_channels=in_channels[0], out_channels=num_filters[0],
-            kernel_size = kernel_sizes[0], padding=conv_padding[0])
+                               kernel_size = kernel_sizes[0], padding=conv_padding[0])
         self.conv2 = nn.Conv2d(in_channels=in_channels[1], out_channels=num_filters[1],
-            kernel_size = kernel_sizes[1], padding=conv_padding[1])
+                               kernel_size = kernel_sizes[1], padding=conv_padding[1])
 
         # after each convLayer; maxPool2d only in frequency dim. -> ~ maxPool1d
         self.relu = nn.ReLU()
@@ -75,16 +75,15 @@ class PlacementRNN(nn.Module):
         self.hidden_size = hidden_size
 
         # dropout not applied to output of last lstm layer (need to apply manually)
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_lstm_layers,
+                            dropout=dropout, batch_first=True)
 
         self.linear1 = nn.Linear(in_features=hidden_size, out_features=128)
         self.linear2 = nn.Linear(in_features=128, out_features=2)   # 0 or 1 for no step/step
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
-    # processed_audio_input: [batch, timestep, input_size] (output of PlacementCNN.forward())
-    #   timestep ~ unrolling length
+    # processed_audio_input: [batch, unroll, input_size] (output of PlacementCNN.forward())
     # chart_features: [batch, num_features] (concat. of one-hot representations)
     def forward(self, processed_audio_input, chart_features, states, input_lengths):
         batch_size = processed_audio_input.size(0)
