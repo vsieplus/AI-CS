@@ -388,8 +388,12 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
                                                      curr_seq_lengths, step)
 
         if do_train:
-            loss.backward()
-            
+            # TODO fix
+            try:
+                loss.backward()
+            except AttributeError:
+                continue            
+
             nn.utils.clip_grad_norm_(rnn.parameters(), max_norm=MAX_GRAD_NORM)
             optimizer.step()
             optimizer.zero_grad()

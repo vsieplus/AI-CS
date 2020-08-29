@@ -69,6 +69,10 @@ def collate_charts(batch):
 	step_sequence_lengths = []
 
 	for chart in batch:
+		# skip empty charts
+		if chart.n_steps == 0:
+			continue
+
 		# transpose channels/timestep so timestep comes first for pad_sequence()
 		audio_feats.append(chart.get_audio_feats().transpose(0, 1))
 		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
@@ -464,8 +468,9 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# and set target to '1' at corresponding melframes
 	placement_target[mel_placement_frames] = 1
 
-	first_frame = mel_placement_frames[0].item()
-	last_frame = mel_placement_frames[-1].item()
+	any_placements = mel_placement_frames.size(0) > 0
+	first_frame = mel_placement_frames[0].item() if any_placements else 0
+	last_frame = mel_placement_frames[-1].item() if any_placements else 0
 
 	return placement_target, first_frame, last_frame
 
