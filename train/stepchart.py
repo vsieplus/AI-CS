@@ -164,21 +164,21 @@ class StepchartDataset(Dataset):
 	def compute_stats(self):
 		print("Caching dataset...")
 		
-		# load once at start to compute overall stats + cache tensors
-		#charts = [self.__getitem__(idx) for idx in trange(len(self.chart_ids))]
+		# load once at start to compute overall vocab size, various stats + cache tensors
+		charts = [self.load_chart(fp, idx, perm, first=True) for fp, idx, perm in self.chart_ids]
 
 		self.n_unique_charts = self.__len__() // len(self.permutations)
 		self.n_steps = 0
-		#self.n_steps = sum([chart.n_steps for chart in charts])
+		self.n_steps = sum([chart.n_steps for chart in charts])
 		self.n_audio_hours = sum([song.n_minutes for song in self.songs.values()]) / 60
 
 		if not self.step_artists:
 			self.step_artists = set()
-		#	for chart in charts:
-		#		self.step_artists.add(chart.step_artist)
+			for chart in charts:
+				self.step_artists.add(chart.step_artist)
 
-		#steps_per_second = [chart.steps_per_second for chart in charts]
-		#self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
+		steps_per_second = [chart.steps_per_second for chart in charts]
+		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
 		self.avg_steps_per_second = 0
 
 	# filter charts to include in the dataset; store path to json + chart index num.
@@ -208,7 +208,7 @@ class StepchartDataset(Dataset):
 		print('Done filtering!')
 		return chart_ids
 
-	def load_chart(self, chart_json_fp, chart_idx, permutation):
+	def load_chart(self, chart_json_fp, chart_idx, permutation, first=False):
 		with open(chart_json_fp, 'r') as f:
 			attrs = json.loads(f.read())
 
@@ -220,7 +220,8 @@ class StepchartDataset(Dataset):
 		chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path],
 					   orig_filetype, permutation, self.special_tokens)
 
-		self.vocab_size += chart.n_special_tokens
+		if first:
+			self.vocab_size += chart.n_special_tokens
 
 		return chart
 	
@@ -413,9 +414,15 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
 		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
 			curr_step = step_features_to_str(step_input[s])
 			if curr_step not in special_tokens.values():
-				new_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
-				special_tokens[new_idx] = curr_step
+				special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
+				special_tokens[special_idx] = curr_step
 				n_special_tokens += 1
+			else:
+				for k,v in special_tokens.items():
+					if v == curr_step:
+						special_idx = k
+						break
+			targets[s] = special_idx
 			continue
 
 		for num_active in range(num_active_arrows):
