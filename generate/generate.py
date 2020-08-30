@@ -18,12 +18,13 @@ from step_tokenize import step_features_to_str, step_index_to_features, UCS_SSC_
 from predict_placements import predict_placements
 import train_util
 
-BEATS_PER_MEASURE = 16
-SPLITS_PER_BEAT = 8
+BEATS_PER_MEASURE = 1
+SPLITS_PER_BEAT = 10
 SPLIT_SUBDIV = SPLITS_PER_BEAT * BEATS_PER_MEASURE   # splits per measure
 
 # SPLITS_PER_BEAT = 1 / ((FAKE_BPM / 60 ) / CHART_FRAME_RATE)
-# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split > ~770bpm (lol)
+# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split 
+# 10 spb > ~600bpm
 FAKE_BPM = 60 * (CHART_FRAME_RATE / SPLITS_PER_BEAT)
 
 def parse_args() -> argparse.Namespace:
@@ -48,7 +49,8 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
         print(f'Creating output directory {out_dir}')
         os.makedirs(out_dir)
 
-    audio_filename = audio_file.split(os.sep)[-1].split('.')[0]
+    audio_ext = audio_file.split('.')[-1]
+    audio_filename = song_name.lower()
 
     # convert each time to a beat/split
     # adapted from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py (~221)
@@ -102,7 +104,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
     if chart_format == 'ssc' or chart_format == 'both':
         chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 
             'MUSIC': os.path.join(out_dir, audio_filename), 'OFFSET': 0.0, 'BPMS': f'0.0={FAKE_BPM}', 
-            'NOTEDATA': '', 'CHARTNAME': '', 'STEPSTYPE': chart_type, 'METER': str(level),
+            'NOTEDATA': '', 'CHARTNAME': '', 'STEPSTYPE': chart_type, 'METER': str(chart_level),
             'CREDIT': model_name, 'STOPS': '', 'DELAYS': ''
         }
 
@@ -123,7 +125,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
             f.write(chart_txt)
 
     # copy the original audio file
-    shutil.copy(audio_file, out_dir)
+    shutil.copyfile(audio_file, os.path.join(out_dir, audio_filename + '.'  + audio_ext))
 
 def generate_placements(placement_model, audio_file, chart_type, chart_level, 
                         n_step_features, device=torch.device('cpu')):

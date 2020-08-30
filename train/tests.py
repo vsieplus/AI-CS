@@ -7,13 +7,11 @@ from step_tokenize import step_features_to_str, step_index_to_features, step_seq
 d = torch.device('cpu')
 
 class TestStepchart(unittest.TestCase):
-	@unittest.skip('tmp')
 	def test_tokenization_single(self):
 		for i in range(1024):
 			feats = step_index_to_features(i, 'pump-single', None, d).unsqueeze(0)
 			self.assertEqual(step_sequence_to_targets(feats, 'pump-single', None)[0].item(), i)
 
-	@unittest.skip('tmp')
 	def test_tokenization_double(self):
 		for i in range(20686):
 			feats = step_index_to_features(i, 'pump-double', None, d).unsqueeze(0)

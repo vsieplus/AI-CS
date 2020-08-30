@@ -152,8 +152,7 @@ def step_index_to_features(index, chart_type, special_tokens, device):
 	# perform 'inverse' of step_sequence_to_targets()
 	features = torch.zeros(SELECTION_INPUT_SIZES[chart_type], dtype=torch.long, device=device)
 	num_arrows = features.size(0) // NUM_ARROW_STATES
-	off_indices = torch.tensor([arrow * NUM_ARROW_STATES for arrow in range(num_arrows)], dtype=torch.long,
-								device=device)
+	off_indices = torch.tensor([arrow * NUM_ARROW_STATES for arrow in range(num_arrows)], dtype=torch.long, device=device)
 	features[off_indices] = 1
 
 	num_active_arrows = 0
