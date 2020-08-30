@@ -8,6 +8,7 @@ source('util.R', local = TRUE)
 
 CHART_TYPES <- list(Single = 'single', Double = 'double')
 CHART_FORMATS <- c('ssc', 'ucs')
+SAMPLING_CHOICES <- c('top-k', 'top-p', 'greedy', 'multinom')
 
 side_by_side <- function(x, second = FALSE, padding = '20px') {
   if(second) {
@@ -45,6 +46,13 @@ ui <- navbarPage(
         side_by_side(numericInput('bpm', 'BPM (optional):', min = 0, value = 120, width = '120px')),
         side_by_side(checkboxGroupInput('save_formats', 'Output formats:',
                                         choices = CHART_FORMATS, inline = TRUE), second = TRUE),
+
+        side_by_side(radioButtons('sample_strat', 'Sampling strategy', choices = SAMPLING_CHOICES)),
+        
+        side_by_side(span(
+          numericInput('topk_k', 'K value for top-k', value = 20, min = 0, max = 1024, width = '120px'),
+          numericInput('topp_p', 'P value for top-p', min = 0, max = 1, value = 0.005, width = '120px')
+        ), second = T),
       
         side_by_side(actionButton('generate_chart', 'Generate!', icon = icon('angle-right'))),
         side_by_side(downloadButton('download_chart', 'Download', icon = icon('arrow-down')),
@@ -56,7 +64,8 @@ ui <- navbarPage(
         includeHTML('html/generate_header.html'),
         fluidRow(
           # column for model information
-          column(4, h3('Current model'), htmlOutput('model_summary')),
+          column(4, h3('Current model'), htmlOutput('model_summary'), 
+                    h3('Generation summary'), htmlOutput('gen_summary')),
           
           # column for audio, model, chart section visualizations
           column(5, 
@@ -65,12 +74,15 @@ ui <- navbarPage(
            plotOutput('spectrogram_plot'),
            # sliderInput (clip location) ?
            uiOutput('audio'),
-           plotOutput('model_peak_picking_plot'),
-           plotOutput('chart_section_plot')),
+           plotOutput('model_peak_picking_plot')
         ),
+
+        fluidRow(
+          # step chart/distribution visualization,
+          column(7, plotOutput('chart_distribution_plot')),
+          column(5, plotOutput('chart_section_plot')))
+        )
         
-        # step chart/distribution visualization,
-        plotOutput('chart_distribution_plot')
       )
     )
   ),

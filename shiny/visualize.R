@@ -41,6 +41,24 @@ plotSpectrogram <- function(audioPath, startTime = 15.0, endTime = 25.0, saveMP4
   plot(fft_data)
 }
 
+# find the indices of steps and holds
+addStepsAndHolds <- function(noteData, fileType = 'ucs') {
+  if(fileType == 'ssc') {
+    noteData$step <- convertToUCS(noteData$step)
+  }
+  
+  # values will be '-2' if no corresponding arrows found
+  noteData$stepIndices <- lapply(noteData$step, function(s) {
+    unlist(gregexpr('[X]', s)) - 1
+  })
+  
+  noteData$hold_indices <- lapply(noteData$step, function(s) {
+    unlist(gregexpr('[MHW]', s)) - 1
+  })
+  
+  noteData
+}
+
 # returns a df with two columns, one row per time/step in the chart
 getNoteData <- function(chartPath) {
   chartName <- basename(chartPath)
@@ -77,32 +95,18 @@ getNoteData <- function(chartPath) {
     steps <- unlist(sapply(notes, '[', 4))
     
     noteData <- data.frame(time = times, step = steps, stringsAsFactors = TRUE)
-    
-    if(fileType == 'ssc') {
-      noteData$step <- convertToUCS(noteData$step)
-    }
-    
-    # values will be '-2' if no corresponding arrows found
-    noteData$steps <- lapply(noteData$step, function(s) {
-      unlist(gregexpr('[X]', s)) - 1
-    })
-    
-    noteData$holds <- lapply(noteData$step, function(s) {
-      unlist(gregexpr('[MHW]', s)) - 1
-    })
-    
-    noteData
+    addStepsAndHolds(noteData, fileType)
   } else {
     print(sprintf('Chart file %s does not exist', chartPath))
     return(NULL)
   }
 }
 
-###########################################################
-
+#################################################################
 ## CHART/Model VISUALIZATION ####################################
 
 chartTheme <- theme(text = element_text(family = 'Calibri', color = 'white', size = 12),
+                    axis.text.y = element_text(color = 'white'),
                     plot.title = element_text(size = 16),
                     plot.background = element_rect(fill = '#131711', color = 'lightblue'),
                     panel.background = element_rect(fill = 'black', color = 'lightblue'),
@@ -119,9 +123,12 @@ plotPeakPicking <- function(modelPeaks, threshold, startTime = 15.0, endTime = 2
   peaks <- filter(peaks, time >= startTime & time <= endTime)
   
   ggplot(peaks) +
-    geom_line(aes(x = time, y = prob)) + 
-    geom_hline(aes(yintercept = threshold), color = 'blue', size = 4) +
-    scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.1), expand=c(0,0)) +
+    geom_line(aes(x = time, y = prob), color='white') + 
+    geom_hline(yintercept = threshold, color = 'white', size = 1) +
+    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.1), expand = c(0,.01)) +
+    scale_x_continuous(limits = c(startTime, endTime), breaks = seq(startTime, endTime, 1), expand = c(0,0)) +
+    labs(title = 'Model placement confidence', x = 'Time (s)', y = 'Probability') +
+    theme(axis.text.x = element_text(color = 'white')) +
     chartTheme
 }
 
@@ -134,7 +141,7 @@ names(notePaths) = seq(1, 10)
 noteIcons <- sapply(notePaths, image_read)
 noteColors <- c('#c3e9d0', '#8da6e2', '#6184d8', '#1e1014')
 
-## START ####
+## Image axis START ####
 # adapted from https://gist.github.com/jonocarroll/2f9490f1f5e7c82ef8b791a4b91fc9ca
 icon_axis <- function(arrows, angle) {
   structure(
@@ -171,7 +178,7 @@ plotChartSection <- function(noteData, startTime = 15.0, endTime = 25.0, epsilon
   
   arrows <- seq(0, num_arrows - 1)
   arrow_positions <- lapply(arrows, function(a) {
-    sapply(noteData$steps, function(s) a %in% s)
+    sapply(noteData$step, function(s) a %in% s)
   })
   
   names(arrow_positions) <- arrows
@@ -209,27 +216,27 @@ getArrowDistribution <- function(noteData, num_arrows) {
   arrows_seq <- seq(0, num_arrows - 1)
   arrows <- data.frame(arrow = arrows_seq)
 
-  arrows$steps <- filterNotes(arrows$arrow, function(a) { 
-    sum(sapply(noteData$steps, function(p) {
+  arrows$step <- filterNotes(arrows$arrow, function(a) { 
+    sum(unlist(sapply(noteData$stepIndices, function(p) {
       length(p) == 1 && a == p[[1]]
-    }))
+    })))
   })
   
   arrows$jumps <- filterNotes(arrows$arrow, function(a) {
-    sum(sapply(noteData$steps, function(s) length(s) == 2 & a %in% s) & 
-      sapply(noteData$holds, function(h) all(h == -2)))
+    sum(sapply(noteData$stepIndices, function(s) length(s) == 2 & a %in% s) & 
+        sapply(noteData$hold_indices, function(h) all(h == -2)))
   })
   
   arrows$brackets <- filterNotes(arrows$arrow, function(a) {
-    sum(sapply(noteData$steps, function(s) length(s) >= 3 & a %in% s) | 
-      (sapply(noteData$holds, function(h) all(h != -2)) & 
-       sapply(noteData$steps, function(s) {
+    sum(sapply(noteData$stepIndices, function(s) length(s) >= 3 & a %in% s) | 
+       (sapply(noteData$hold_indices, function(h) all(h != -2)) & 
+        sapply(noteData$stepIndices, function(s) {
         length(s) == 2 & a %in% s 
        })))
   })
   
   arrows$holds <- sapply(arrows$arrow, function(a) { 
-    sum(sapply(noteData$holds, function(p) a %in% p))
+    sum(sapply(noteData$hold_indices, function(p) a %in% p))
   })
   
   arrows
@@ -239,7 +246,8 @@ getArrowDistribution <- function(noteData, num_arrows) {
 plotChartDistribution <- function(noteData, chartTitle = '') {
   # filter empty steps + extract note positions
   num_arrows <- nchar(as.character(noteData[1, 'step']))
-  noteData <- dplyr::filter(noteData, step != strrep('.', num_arrows))
+  noteData <- filter(noteData, step != strrep('.', num_arrows))
+  noteData <- addStepsAndHolds(noteData)
   
   arrows <- getArrowDistribution(noteData, num_arrows)
   arrows_long <- melt(arrows, id.var = 'arrow')
@@ -260,7 +268,6 @@ plotChartDistribution <- function(noteData, chartTitle = '') {
                       name = "Step type", labels = arrow_labels) +
     theme(axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
           axis.title.x = element_blank(),
-          axis.text.y = element_text(color = 'white'),
           legend.position = c(.1, .8),
           legend.background = element_rect(fill = '#131711', color = 'lightblue')) +      
     chartTheme
