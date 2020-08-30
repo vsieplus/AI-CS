@@ -20,6 +20,7 @@ server <- function(input, output, session) {
     updateSliderInput(session, 'chart_level', max = n_levels)
     
     updateSelectInput(session, 'model', choices = modelsList[[input$chart_type]])
+    updateNumericInput(session, 'topk_k', max = hyper$SELECTION_VOCAB_SIZES[[input$chart_type]])
   })
   
   # produce spectrogram plot for new audio file
@@ -51,11 +52,9 @@ server <- function(input, output, session) {
     }
 
     generateChart(input$audio_file$datapath, input$model, input$chart_level,
-                  input$chart_type, input$song_title, input$artist, input$bpm,
-                  input$save_formats, updateProgress)
-  })
-  
-  # progress bar(s) (generation complete, saving complete)
+                  paste0('pump-', input$chart_type), input$song_title, input$artist, input$bpm,
+                  input$save_formats, input$sample_strat, input$topk_k, input$topp_p, updateProgress)
+  }, ignoreNULL = TRUE)
   
   # save the chart once it's been generated
   output$download_chart <- downloadHandler(
@@ -63,7 +62,8 @@ server <- function(input, output, session) {
       if(is.null(chartData)) {
         ''
       } else {
-        paste0(chartData()[['name']], '.zip') 
+        paste0(chartData()[['title']], '-', substr(chartData()[['chartType']], 6, 6),
+               chartData()[['level']], '.zip') 
       }
     },
     content = function(file) {
@@ -73,37 +73,41 @@ server <- function(input, output, session) {
 
       # can access reactive 'chartData' list in here      
       # use temp directory before zipping file
-      chart_df = chartData()
       origDir = setwd(tempdir())
       on.exit(setwd(origDir))
       
-      if(length(chart_df[['saveFormats']]) > 1) {
+      if(length(chartData()[['saveFormats']]) > 1) {
         saveFormat = 'both'
       } else {
-        saveFormat = chart_df[['saveFormats']][1]
+        saveFormat = chartData()[['saveFormats']][1]
       }
-      
-      generate$save_chart(chart_df[['notes']], chart_df[['chartType']], chart_df[['level']],
-                          saveFormat, chart_df[['title']], chart_df[['artist']],
-                          chart_df[['audioPath']], chart_df[['name']], '.')
-      
+    
+      generate$save_chart(chartData()[['notes']], chartData()[['chartType']], chartData()[['level']],
+                          saveFormat, chartData()[['title']], chartData()[['artist']],
+                          chartData()[['audioPath']], chartData()[['name']], '.')
+
       zip(file, list.files('.', pattern = '(\\.ucs|\\.mp3|\\.ssc)'))  
     }
   )
+
+  # display generation stats
+  output$gen_summary <- renderText({
+    getGenerationSummary(chartData())
+  })
   
   # produce model peak-picking plot
   output$model_peak_picking_plot <- renderPlot({
-    plotPeakPicking(chartData()[['peaks']], chartData()[['thresholds']])
+    plotPeakPicking(chartData()[['peaks']], chartData()[['threshold']])
   }, height = 360, width = 600)
   
   # produce chart visualizations
   output$chart_section_plot <- renderPlot({
-    plotChartSection(chartData()[['notes']])
+    plotChartSection(chartData()[['notes_df']])
   }, height = 300, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
-    plotChartDistribution(chartData()[['notes']])
-  }, height = 500, width = 900)
+    plotChartDistribution(chartData()[['notes_df']])
+  }, height = 300, width = 600)
 }
 
 # to deploy to shinyapps.io

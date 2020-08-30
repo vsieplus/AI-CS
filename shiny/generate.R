@@ -24,17 +24,18 @@ getModelSummary <- function(modelPath, as_str) {
       modelSummary <- rjson::fromJSON(file = modelJsonPath)
 
       if(as_str) {
-        paste(sep = '<br/>', sprintf('Model type: %s', modelDescriptions[[modelSummary[['type']]]]),
+        paste(sep = '<br/>', sprintf('Model description: %s', modelDescriptions[[modelSummary[['type']]]]),
+              sprintf('Vocabulary size: %0.f', modelSummary[['vocab_size']]),
               sprintf('Epochs trained: %0.f', modelSummary[['epochs_trained']]),
               sprintf('Batch size: %0.f', modelSummary[['batch_size']]),
               sprintf('Hidden size: %0.f', modelSummary[['hidden_size']]),
-              sprintf('Selection hidden weight: %0.2f\n', modelSummary[['selection_hidden_wt']]),
-              sprintf('Dataset name: %s', modelSummary[['name']]),
+              sprintf('Selection hidden weight: %0.2f<br/>', modelSummary[['selection_hidden_wt']]),
+              sprintf('Dataset name: %s<br/>', modelSummary[['name']]),
               sprintf('Song types: %s', cat(modelSummary[['song_types']])),
+              sprintf('Total unique songs: %0.f', modelSummary[['unique_songs']]),
+              sprintf('Total audio hours: %0.4f<br/>', modelSummary[['audio_hours']]),
               sprintf('Chart type: %s', modelSummary[['chart_type']]),
               sprintf('Chart permutations: %s', cat(modelSummary[['permutations']])),
-              sprintf('Total unique songs: %0.f', modelSummary[['unique_songs']]),
-              sprintf('Total audio hours: %0.4f', modelSummary[['audio_hours']]),
               sprintf('Total unique charts: %0.f', modelSummary[['unique_charts']]),
               sprintf('Minimum chart level: %0.f', modelSummary[['min_level']]),
               sprintf('Maximum chart level: %0.f', modelSummary[['max_level']]),
@@ -52,11 +53,19 @@ getModelSummary <- function(modelPath, as_str) {
 }
 
 # generate a chart; return a list with the generated notes + chart metadata
-generateChart <- function(audioPath, modelPath, level, chartType, title, artist, 
-                          bpm, saveFormats, updateProgress = NULL) {
+generateChart <- function(audioPath, modelPath, level, chartType, title, artist, bpm, saveFormats,
+                          sampleStrat, topkK, toppP, updateProgress = NULL) {
+  if(sampleStrat == 'top-k') {
+    sampleDescription <- sprintf("Top-k sampling with k = %0.f", topkK)
+  } else if(sampleStrat == 'top-p') {
+    sampleDescription <- sprintf("Top-p sampling with p = %0.f", toppP)
+  } else {
+    sampleDescription <- sampleStrat
+  }
+
   chartData <-  list('title' = title, 'artist' = artist, 'bpm' = bpm, 'audioPath' = audioPath,
-                     'saveFormats' = saveFormats, 'chartType' = paste0('pump-', chartType), 
-                     'level' = as.integer(level))
+                     'saveFormats' = saveFormats, 'chartType' = chartType, 'level' = as.integer(level),
+                     'sampleStrategy' = sampleDescription)
   
   showUpdates = is.function(updateProgress)
 
@@ -103,10 +112,10 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
     updateProgress(value = 0.3, detail = 'Generating step placements')
   }
   
-  chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
-                                                  level, inputSize)
-
   chartData[['threshold']] <- hyper$PLACEMENT_THRESHOLDS[as.integer(level - 1)]
+
+  chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
+                                                  as.integer(level), inputSize)
 
   placements = chartPlacements[[1]]
   chartData[['peaks']] = chartPlacements[[2]]
@@ -114,15 +123,38 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   sampleRate = as.integer(chartPlacements[[4]])
 
   if(showUpdates) {
-    updateProgress(value = 0.7, detail = 'Selecting step sequence..')
+    updateProgress(value = 0.7, detail = 'Selecting step sequence')
+    Sys.sleep(1)
   }
 
-  chartData[['notes']] <- generate$generate_steps(selectionModel, placements, placementHiddens,
-                                                  inputSize, chartType, sampleRate, specialTokens, 
-                                                  sampling = 'top-k', k = 25L, p = 0.01)
+  generatedSteps <- generate$generate_steps(selectionModel, placements, placementHiddens,
+                                            inputSize, chartType, sampleRate, specialTokens, 
+                                            sampling = sampleStrat, k = topkK, p = toppP)
+
+  chartData[['notes']] <- generatedSteps
+  chartData[['notes_df']] <- data.frame(time = sapply(generatedSteps, function(x) x[[1]]),
+                                        step = sapply(generatedSteps, function(x) x[[2]]))
+  
+  chartData[['first_step_time']] <- head(chartData[['notes_df']][['time']], 1)
+  chartData[['last_step_time']] <- tail(chartData[['notes_df']][['time']], 1)
+  chartData[['num_placements']] <- length(chartData[['notes']])
+  chartData[['steps_per_second']] <- chartData[['num_placements']] / chartData[['last_step_time']]
+  
   if(showUpdates) {
     updateProgress(value = 1.0, detail = 'Complete!')
+    Sys.sleep(2)
   }
 
   chartData
+}
+
+getGenerationSummary <- function(chartData) {
+  chartTitle <- paste0(chartData[['title']], ' ', toupper(substr(chartData[['chartType']], 6, 6)), chartData[['level']])
+  paste(sep = '<br/>', 
+        sprintf('Chart generated: %s', chartTitle),
+        sprintf('Sampling strategy: %s', chartData[['sampleStrategy']]),
+        sprintf('Total step placements: %0.f', chartData[['num_placements']]),
+        sprintf('Avg. steps per second: %0.4f', chartData[['steps_per_second']]),
+        sprintf('First step : %0.4f s', chartData[['first_step_time']]),
+        sprintf('Last step: %0.4f s', chartData[['last_step_time']]))
 }
