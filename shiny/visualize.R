@@ -102,15 +102,27 @@ getNoteData <- function(chartPath) {
 
 ## CHART/Model VISUALIZATION ####################################
 
+chartTheme <- theme(text = element_text(family = 'Calibri', color = 'white', size = 12),
+                    plot.title = element_text(size = 16),
+                    plot.background = element_rect(fill = '#131711', color = 'lightblue'),
+                    panel.background = element_rect(fill = 'black', color = 'lightblue'),
+                    panel.grid.major.y = element_line(color='gray50'),
+                    panel.grid.major.x = element_blank(),
+                    panel.grid.minor.y = element_line(color = 'gray30'),
+                    panel.grid.minor = element_blank())
+
 # plot model peak picking scores for the given range
-plotPeakPicking <- function(modelPeaks, startTime = 15.0, endTime = 25.0) {
+plotPeakPicking <- function(modelPeaks, threshold, startTime = 15.0, endTime = 25.0) {
   # modelPeaks is a list of lists, each sublist with 2 elems: time + peak score
   peaks <- data.frame(time = sapply(modelPeaks, function(x) x[[1]]),
                       prob = sapply(modelPeaks, function(x) x[[2]]))
   peaks <- filter(peaks, time >= startTime & time <= endTime)
   
-  ggplot(peaks, aes(x = time, y = prob)) +
-    geom_line()
+  ggplot(peaks) +
+    geom_line(aes(x = time, y = prob)) + 
+    geom_hline(aes(yintercept = threshold), color = 'blue', size = 4) +
+    scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.1), expand=c(0,0)) +
+    chartTheme
 }
 
 notePositions <- list(top = '[1368]', center = '[27]', bottom = '[0459]')
@@ -181,7 +193,8 @@ plotChartSection <- function(noteData, startTime = 15.0, endTime = 25.0, epsilon
     geom_point() + 
     theme(axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
           axis.title.x = element_blank()) +
-    scale_y_continuous(trans = 'reverse')
+    scale_y_continuous(trans = 'reverse') +
+    chartTheme
 }
 
 # count arrow types from note data
@@ -245,18 +258,11 @@ plotChartDistribution <- function(noteData, chartTitle = '') {
     scale_y_continuous(expand = c(0,  0.05), limits = c(0, max_freq + 25)) +
     scale_fill_manual(breaks = waiver(), values = noteColors,
                       name = "Step type", labels = arrow_labels) +
-    theme(text = element_text(family = 'Calibri', color = 'white', size = 12),
-          plot.title = element_text(size = 16),
-          plot.background = element_rect(fill = '#131711', color = 'lightblue'),
-          panel.background = element_rect(fill = 'black', color = 'lightblue'),
-          panel.grid.major.y = element_line(color='gray50'),
-          panel.grid.major.x = element_blank(),
-          panel.grid.minor.y = element_line(color = 'gray30'),
-          panel.grid.minor = element_blank(),
-          axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
+    theme(axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
           axis.title.x = element_blank(),
           axis.text.y = element_text(color = 'white'),
           legend.position = c(.1, .8),
-          legend.background = element_rect(fill = '#131711', color = 'lightblue'))
+          legend.background = element_rect(fill = '#131711', color = 'lightblue')) +      
+    chartTheme
 }
 

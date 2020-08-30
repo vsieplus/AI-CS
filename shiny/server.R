@@ -66,18 +66,40 @@ server <- function(input, output, session) {
         paste0(chartData()[['name']], '.zip') 
       }
     },
-    content = saveCharts # see generate.R
+    content = function(file) {
+      if(is.null(chartData)) {
+        return(NULL)
+      }
+
+      # can access reactive 'chartData' list in here      
+      # use temp directory before zipping file
+      chart_df = chartData()
+      origDir = setwd(tempdir())
+      on.exit(setwd(origDir))
+      
+      if(length(chart_df[['saveFormats']]) > 1) {
+        saveFormat = 'both'
+      } else {
+        saveFormat = chart_df[['saveFormats']][1]
+      }
+      
+      generate$save_chart(chart_df[['notes']], chart_df[['chartType']], chart_df[['level']],
+                          saveFormat, chart_df[['title']], chart_df[['artist']],
+                          chart_df[['audioPath']], chart_df[['name']], '.')
+      
+      zip(file, list.files('.', pattern = '(\\.ucs|\\.mp3|\\.ssc)'))  
+    }
   )
   
   # produce model peak-picking plot
   output$model_peak_picking_plot <- renderPlot({
-    plotPeakPicking(chartData()[['peaks']])
-  }, height = 400, width = 600)
+    plotPeakPicking(chartData()[['peaks']], chartData()[['thresholds']])
+  }, height = 360, width = 600)
   
   # produce chart visualizations
   output$chart_section_plot <- renderPlot({
     plotChartSection(chartData()[['notes']])
-  }, height = 400, width = 600)
+  }, height = 300, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
     plotChartDistribution(chartData()[['notes']])

@@ -155,10 +155,12 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level,
         logits, placement_hiddens, _ = placement_model(audio_feats, chart_feats, states, audio_length)
 
         # placement predictions - [batch=1, n_audio_frames] - 1 if a placement, 0 if empty
-        placements, peaks = predict_placements(logits, [chart_level], audio_length, get_probs=True)
+        placements, probs = predict_placements(logits, [chart_level], audio_length, get_probs=True)
 
         placements = placements.squeeze(0)
-        peaks = peaks.squeeze(0)
+        probs = probs.squeeze(0).tolist()
+
+    peaks = [(i / CHART_FRAME_RATE, prob) for i, prob in enumerate(probs)]
 
     return placements, peaks, placement_hiddens, sample_rate    
 

@@ -8,6 +8,7 @@ use_python('/home/vsie/anaconda3/bin/python3.8')
 use_condaenv('aics')
 
 generate <- import_from_path('generate', path = file.path('..', 'generate'))
+hyper <- import_from_path('hyper', path = file.path('..', 'train'))
 
 CHART_LEVELS <- list('single' = 26, 'double' = 28)
 
@@ -54,7 +55,8 @@ getModelSummary <- function(modelPath, as_str) {
 generateChart <- function(audioPath, modelPath, level, chartType, title, artist, 
                           bpm, saveFormats, updateProgress = NULL) {
   chartData <-  list('title' = title, 'artist' = artist, 'bpm' = bpm, 'audioPath' = audioPath,
-                     'saveFormats' = saveFormats, 'chartType' = paste0('pump-', chartType), 'level' = level)
+                     'saveFormats' = saveFormats, 'chartType' = paste0('pump-', chartType), 
+                     'level' = as.integer(level))
   
   showUpdates = is.function(updateProgress)
 
@@ -102,7 +104,9 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   }
   
   chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
-                                                  as.integer(level), inputSize)
+                                                  level, inputSize)
+
+  chartData[['threshold']] <- hyper$PLACEMENT_THRESHOLDS[as.integer(level - 1)]
 
   placements = chartPlacements[[1]]
   chartData[['peaks']] = chartPlacements[[2]]
@@ -121,30 +125,4 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   }
 
   chartData
-}
-
-# save charts to (temp. path) 'file'
-saveCharts <- function(file) {
-  if(is.null(chartData)) {
-    return(NULL)
-  }
-
-  # can access reactive 'chartData' list in here
-  chart_df <- chartData()
-  
-  # use temp directory before zipping file
-  origDir = setwd(tempdir())
-  on.exit(setwd(origDir))
-  
-  if(length(chart_df[['saveFormats']]) > 1) {
-    saveFormat = 'both'
-  } else {
-    saveFormat = chart_df[['saveFormats']][1]
-  }
-  
-  generate$save_chart(chart_df[['notes']], chart_df[['chartType']], chart_df[['level']],
-                      saveFormat, chart_df[['title']], chart_df[['artist']],
-                      chart_df[['audio_path']], chart_df[['name']], '.')
-  
-  zip(file, list.files('.'))  
 }
