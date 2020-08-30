@@ -40,9 +40,19 @@ server <- function(input, output, session) {
   # store model outputs + the generated notes/times
   chartData <- eventReactive(input$generate_chart, {
     req(input$audio_file)
+
+    # track generation progress
+    progress <- shiny::Progress$new()
+    progress$set(message = 'Generating chart..', value = 0)
+    on.exit(progress$close())
+
+    updateProgress <- function(value , detail) {
+      progress$set(value = value, detail = detail)
+    }
+
     generateChart(input$audio_file$datapath, input$model, input$chart_level,
                   input$chart_type, input$song_title, input$artist, input$bpm,
-                  input$save_formats)
+                  input$save_formats, updateProgress)
   })
   
   # progress bar(s) (generation complete, saving complete)
@@ -62,12 +72,12 @@ server <- function(input, output, session) {
   # produce model peak-picking plot
   output$model_peak_picking_plot <- renderPlot({
     plotPeakPicking(chartData()[['peaks']])
-  })
+  }, height = 400, width = 600)
   
   # produce chart visualizations
   output$chart_section_plot <- renderPlot({
     plotChartSection(chartData()[['notes']])
-  }, height = 500, width = 600)
+  }, height = 400, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
     plotChartDistribution(chartData()[['notes']])

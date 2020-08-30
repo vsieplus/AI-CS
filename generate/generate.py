@@ -76,7 +76,6 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
             elif step == 'M':
                 curr_holds.add(j)
             elif step == 'W':
-                # TODO find bug
                 curr_holds.remove(j)
         
             filtered_note += step
@@ -126,15 +125,9 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
     # copy the original audio file
     shutil.copy(audio_file, out_dir)
 
-def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, 
-                   n_step_features, special_tokens, sampling, k, p, device=torch.device('cpu')):
+def generate_placements(placement_model, audio_file, chart_type, chart_level, 
+                        n_step_features, device=torch.device('cpu')):
     placement_model.eval()
-    selection_model.eval()
-
-    print('Generating chart - this may take a bit...')
-
-    # store pairs of time (s) and step vocab indices
-    chart_data = []
 
     # shape [3, ?, 80] -> [batch=1, 3, ?, 80]
     audio_feats, sample_rate = extract_audio_feats(audio_file)
@@ -167,16 +160,26 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
         placements = placements.squeeze(0)
         peaks = peaks.squeeze(0)
 
-        placement_frames = (placements == 1).nonzero(as_tuple=False).flatten()
-        num_placements = int(placements.sum().item())
+    return placements, peaks, placement_hiddens, sample_rate    
 
-        print(f'{num_placements} placements were chosen. Now selecting steps...')
+def generate_steps(selection_model, placements, placement_hiddens, n_step_features, chart_type,
+                   sample_rate, special_tokens, sampling, k, p, device=torch.device('cpu')):
+    placement_frames = (placements == 1).nonzero(as_tuple=False).flatten()
+    num_placements = int(placements.sum().item())
 
-        # Start generating the sequence of steps
-        step_length = torch.ones(1, dtype=torch.long, device=device)
-        hold_indices = set()
-        step_indices = set()
-        
+    print(f'{num_placements} placements were chosen. Now selecting steps...')
+
+    # store pairs of time (s) and step vocab indices
+    chart_data = []
+
+    # Start generating the sequence of steps
+    step_length = torch.ones(1, dtype=torch.long, device=device)
+    hold_indices = set()
+    step_indices = set()
+
+    selection_model.eval()
+
+    with torch.no_grad():
         for i in trange(num_placements):
             placement_melframe = placement_frames[i].item()
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
@@ -186,38 +189,48 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
                 hidden, cell = selection_model.initStates(batch_size=1, device=device)
                 logits, (hidden, cell) = selection_model(start_token, None, hidden, cell, step_length)
             else:
-                next_token = next_token.unsqueeze(0).unsqueeze(0).float()
+                curr_token = next_token_feats.unsqueeze(0).unsqueeze(0).float()
                 placement_hidden = placement_hiddens[0, placement_melframe]
-                logits, (hidden, cell) = selection_model(next_token, placement_hidden, hidden, cell, step_length)
+                logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
 
             next_token_idx = predict_step(logits.squeeze(), sampling, k, p)
             
             # convert token index -> feature tensor -> str [ucs] representation
-            next_token = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
-            next_token_str = step_features_to_str(next_token)
-            (next_token_str,
-             new_hold_indices,
-             released_indices) = filter_steps(next_token_str, hold_indices, step_indices)
+            next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
+            next_token_str = step_features_to_str(next_token_feats)
+            next_token_str, new_hold_indices = filter_steps(next_token_str, hold_indices, step_indices)
 
             # replace steps ('X') immediately before holds ('H') as ('M')
-            #         holds ('H') immediately before steps ('X') as ('W')
-            if new_hold_indices or released_indices:
+            if new_hold_indices:
                 prev_step = chart_data[i - 1][1] 
                 replacement = ''
                 for k in range(len(prev_step)):
                     if k in new_hold_indices:
                         replacement += 'M'
-                    elif k in released_indices:
-                        replacement += 'W'
                     else:
                         replacement += prev_step[k]
 
                 chart_data[i - 1][1] = replacement
 
             chart_data.append([placement_time, next_token_str])
-   
-    return chart_data, peaks
 
+    return chart_data
+
+def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, 
+                   n_step_features, special_tokens, sampling, k, p, device=torch.device('cpu')):
+    print('Generating chart - this may take a bit...')
+
+    (placements,
+     peaks, 
+     placement_hiddens,
+     sample_rate) = generate_placements(placement_model, audio_file, chart_type,
+                                        chart_level, n_step_features, device)
+
+    chart_data = generate_steps(selection_model, placements, placement_hiddens, n_step_features,
+                                chart_type, sample_rate, special_tokens, sampling, k, p, device)
+
+    return chart_data, peaks
+        
 def filter_steps(token_str, hold_indices, step_indices):
     # filter out step exceptions
     new_token_str = ''
@@ -230,25 +243,28 @@ def filter_steps(token_str, hold_indices, step_indices):
 
         #  - cannot release 'W' if not currently held
         if token == 'W':
-            if not curr_step_hold:
+            if j in step_indices:
+                # if previous step 'X', change X -> M, and leave this as 'W'
+                new_hold_indices.append(j)
+                step_indices.remove(j)
+            elif not curr_step_hold:
                 token = '.'
             else:
-                step_indices.discard(j)
                 hold_indices.remove(j)
         elif token == 'H' and not curr_step_hold:
             hold_indices.add(j)
             
             #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' 
-            #    otherwise, change the first 'H' -> 'M' (hold start)
+            #    otherwise, change the current 'H' -> 'M' (hold start)
             if j in step_indices:
                 new_hold_indices.append(j)
                 step_indices.remove(j)
             else:
                 token = 'M'
         elif token == 'X':
-            # if 'X' comes directly after 'H', change the previous 'H' to 'W' (release)
+            # if 'X' comes directly after 'H', change current 'X' to 'W' (release)
             if curr_step_hold:
-                released_indices.append(j)
+                token = 'W'
                 hold_indices.remove(j)
 
             step_indices.add(j)
@@ -262,7 +278,7 @@ def filter_steps(token_str, hold_indices, step_indices):
              
         new_token_str += token
 
-    return new_token_str, new_hold_indices, released_indices
+    return new_token_str, new_hold_indices
 
 def predict_step(logits, sampling, k, p):
     """predict the next step given model logits and a sampling strategy"""
@@ -301,7 +317,7 @@ def predict_step(logits, sampling, k, p):
 
     return pred_idx
     
-def get_gen_config(model_summary, model_dir, device):
+def get_gen_config(model_summary, model_dir, device=torch.device('cpu')):
     if model_summary['type'] == 'rnns':
         placement_model = PlacementCLSTM(model_summary['placement_channels'], model_summary['placement_filters'], 
                                          model_summary['placement_kernels'], model_summary['placement_pool_kernel'],

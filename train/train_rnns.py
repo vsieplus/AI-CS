@@ -569,7 +569,7 @@ def main():
     dataset = StepchartDataset(args.dataset_path)
 
     if not args.save_dir:
-        if args.load_checkpoint:
+        if args.load_checkpoint and not arg.finetune:
             args.save_dir = args.load_checkpoint
         else:	
             # models/{single/double}/dataset_name/...
