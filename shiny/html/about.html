@@ -1,1 +1,60 @@
-<p>Hi.</p>
+<div>
+    <h3>About</h3>
+    <p>
+      Thanks for visiting AI Custom Step! This project was inspired by
+      <a href='https://arxiv.org/abs/1703.06891'>Dance Dance Convolution</a> (Donahue et. al, 2017),
+      and is an extension and adaptation of that project to PIU. Many things were kept similar, but
+      many modifications were also added. The linked paper has a great explanation of the approach taken
+      towards step chart generation. If you're interested in learning more about this specific project and its implementation,
+      you may explore the repository on <a href='https://github.com/vsieplus/AI-CS'>Github</a>.
+    </p>
+    
+    <h3>Decoding strategies</h3>
+    <p> During step selection we use the outputs of the model to obtain a probability distribution over the
+        different possible states of the dance pad. When choosing a step from this distribution there are a
+        few different strategies we can take:
+
+        <ul>
+            <li><strong>top-p</strong>: sample from the smallest set of elements whose cumulative probability is > <i>p</i></li>
+            <li><strong>top-k</strong>: sample from the set of elements with the <i>k</i>  highest probabilities</li>
+            <li><strong>beam-search</strong>: at each timestep, keep the <i>b</i> most likely sequences from expanding all possibilities
+                with the <i>b</i> most likely sequences from the previous timestep; at the end choose the one with the best score</li>
+            <li><strong>greedy</strong>: pick the sample with the highest probability</li>
+            <li><strong>multinom</strong>: randomly sample from the unfiltered distribution</li>
+        </ul>
+
+        From experimentation, top-p with <i>p</i> ~ 0.05-0.1 and top-k with <i>k</i> ~ 10-30 seem to give the most
+        consistent and fluent sequence generations. Beam search with <i>b</i> ~ 20 also produces good sequences.
+        Greedy sampling tends to degenerate to repetition very quickly, while multinom may frequently sample unlikely steps. <br/><br/>
+
+        If we make a comparison to how step makers select steps, it seems that top-p, top-k, and beam-search are 
+        all reasonable approximations. At any given frame in the chart, our choice for the next step is often 
+        influenced by the previous step(s), in order to create a sequence which flows well together (e.g. minimize 
+        double stepping/awkward transitions). To do this, we may restrict the set of choices for the next
+        step(s) depending on what we placed previously. <br/><br/> 
+        
+        Futhermore, the way in which we restrict these choices may also depend on what that previous arrow was. For example,
+        in doubles, a step in the middle 4 gives many more viable options for the next step(s) then say one on the outer 4.
+        This suggests that the strategy for step selection may be closer top-p sampling rather than top-k or beam-search,
+        as the number of candidates to sample from may change depending on the state. Such restrictions however seem not to be 
+        as relevant for singles, due to the reduced set of step combinations.  
+    </p>
+
+    <h3>FAQ</h3>
+        <ol>
+            <li><strong>Is there a way to change the display bpm or scroll speed?</strong> idk</li>
+            <li><strong>How can I play the generated chart?</strong> For official PIU UCS songs, you may upload ucs files with your
+                account on the Pump it Up <a href='http://www.piugame.com/piu.ucs/ucs.intro/ucs.intro.php'>UCS site</a> and add 
+                them to your profile. You may also play official and non-official song charts using <a href='http://stepf2.blogspot.com/'>StepF2/P1</a>
+                with ssc files (put subfolders in a pack under the <code>Songs/</code> folder). </li>
+            <li><strong>Can I download the models to my computer?</strong> See the <code>train/models/</code> 
+                directory in the repository's master branch.</li>
+            <li><strong>Is it possible to train the model to generate a certain style of stepchart?</strong> 
+                A common approach to this task is known as fine-tuning, where we take an already trained model 
+                (e.g. AICS v1.0) and give it a curated training set with specific types of examples. Functionality
+                for this is also provided in the linked repository.</li>
+        </ol>
+
+</div>
+
+

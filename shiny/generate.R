@@ -54,11 +54,13 @@ getModelSummary <- function(modelPath, as_str) {
 
 # generate a chart; return a list with the generated notes + chart metadata
 generateChart <- function(audioPath, modelPath, level, chartType, title, artist, bpm, saveFormats,
-                          sampleStrat, topkK, toppP, updateProgress = NULL) {
+                          sampleStrat, topkK, toppP, beamSize, updateProgress = NULL) {
   if(sampleStrat == 'top-k') {
     sampleDescription <- sprintf("Top-k sampling with k = %0.f", topkK)
   } else if(sampleStrat == 'top-p') {
     sampleDescription <- sprintf("Top-p sampling with p = %0.f", toppP)
+  } else if(sampleStrat == 'beam-search') {
+    sampleDescription <- sprintf("Beam-search with beam size b = %0.f", beamSize)
   } else {
     sampleDescription <- sampleStrat
   }
@@ -129,7 +131,7 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
 
   generatedSteps <- generate$generate_steps(selectionModel, placements, placementHiddens,
                                             inputSize, chartType, sampleRate, specialTokens, 
-                                            sampling = sampleStrat, k = topkK, p = toppP)
+                                            sampling = sampleStrat, k = topkK, p = toppP, b = beamSize)
 
   chartData[['notes']] <- generatedSteps
   chartData[['notes_df']] <- data.frame(time = sapply(generatedSteps, function(x) x[[1]]),

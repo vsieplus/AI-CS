@@ -21,6 +21,7 @@ server <- function(input, output, session) {
     
     updateSelectInput(session, 'model', choices = modelsList[[input$chart_type]])
     updateNumericInput(session, 'topk_k', max = hyper$SELECTION_VOCAB_SIZES[[input$chart_type]])
+    updateNumericInput(session, 'beam_size', max = hyper$SELECTION_VOCAB_SIZES[[input$chart_type]])
   })
   
   # produce spectrogram plot for new audio file
@@ -33,8 +34,7 @@ server <- function(input, output, session) {
   observeEvent(input$play_audio, {
     req(input$audio_file)
     output$audio <- renderUI(tags$audio(src = 'clip.wav', type = 'audio/wav',
-                             autoplay = NA, controls = NA,
-                             style = 'display: none;'))
+                             autoplay = NA, controls = NA, style = 'display: none;'))
   })
   
   # perform chart generation once the audio file is uploaded
@@ -52,8 +52,9 @@ server <- function(input, output, session) {
     }
 
     generateChart(input$audio_file$datapath, input$model, input$chart_level,
-                  paste0('pump-', input$chart_type), input$song_title, input$artist, input$bpm,
-                  input$save_formats, input$sample_strat, input$topk_k, input$topp_p, updateProgress)
+                  paste0('pump-', input$chart_type), input$song_title, input$artist, 
+                  input$bpm, input$save_formats, input$sample_strat, input$topk_k, input$topp_p,
+                  input$beam_size, updateProgress)
   }, ignoreNULL = TRUE)
   
   # save the chart once it's been generated

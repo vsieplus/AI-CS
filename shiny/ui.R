@@ -8,7 +8,7 @@ source('util.R', local = TRUE)
 
 CHART_TYPES <- list(Single = 'single', Double = 'double')
 CHART_FORMATS <- c('ssc', 'ucs')
-SAMPLING_CHOICES <- c('top-k', 'top-p', 'greedy', 'multinom')
+SAMPLING_CHOICES <- c('top-p', 'top-k', 'beam-search', 'greedy', 'multinom')
 
 side_by_side <- function(x, second = FALSE, padding = '20px') {
   if(second) {
@@ -47,11 +47,12 @@ ui <- navbarPage(
         side_by_side(checkboxGroupInput('save_formats', 'Output formats:',
                                         choices = CHART_FORMATS, inline = TRUE), second = TRUE),
 
-        side_by_side(radioButtons('sample_strat', 'Sampling strategy', choices = SAMPLING_CHOICES)),
+        side_by_side(radioButtons('sample_strat', 'Decoding strategy (see About)', choices = SAMPLING_CHOICES)),
         
         side_by_side(span(
           numericInput('topk_k', 'K value for top-k', value = 20, min = 0, max = 1024, width = '120px'),
-          numericInput('topp_p', 'P value for top-p', min = 0, max = 1, value = 0.005, width = '120px')
+          numericInput('topp_p', 'P value for top-p', min = 0, max = 1, value = 0.05, width = '120px'),
+          numericInput('beam_size', 'Beam size for beam-search', min = 0, max = 1024, width = '120px')
         ), second = T),
       
         side_by_side(actionButton('generate_chart', 'Generate!', icon = icon('angle-right'))),
