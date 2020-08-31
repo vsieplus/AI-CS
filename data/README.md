@@ -20,22 +20,29 @@ can be created with [StepEdit Lite](http://www.piugame.com/piu.ucs/ucs.intro/ucs
 
 Each step chart is associated with some basic information, such as its corresponding song, the step artist (sometimes),
 its type (single / double), difficulty level, bpm, and the sequence of steps itself. Together, the audio and the
-sequence of steps forms a series of correspondences between audio features and steps, which emerge progressively.
+sequence of steps forms a series of correspondences between audio features and steps, which is what we end up passing
+to the models. We can also use other chart features as a secondary form of data, such as the chart level and type.
 
 ## Getting the data
 
 Step chart files should be organized into pack folders, and placed under `dataset/raw` (treat it as the
 equivalent of the `Songs/` directory if you're familiar with StepMania/StepF2).
 
-As mentioned above, SSC packs can be found on various online forums created by many different
-step artists. 
+SSC packs can be found on various online forums created by different step artists. 
 
-To download UCS from the official PIU UCS site, you can run `ucs_scrape.py` with
+To download multiple UCS files at once from the official PIU UCS site, you can run `ucs_scrape.py` with
 different options. For instance, calling the below will download all UCS singles charts
 created by step artists **artist1** or **artist2**, and are between level 14 and 16. 
 It is possible to specify other parameters such as specific song titles and a range for the date
 published. Use the `-h` option for more info. This script will prompt you for your PIU account
 login information, as an account is required to download UCS files from their website.
+
+Note that the first time scraping/working with ucs files, you should first run 
+
+```ucs_scrape_meta.py --scrape_meta --download```
+
+to first scrape some general metadata and download the audio and templates from the UCS site. This will
+create a placeholder pack with chart under `dataset/raw/00-UCS-BASE`. These files will be referred to for downloaded ucs charts in order to avoid duplication of audio files.
 
 ```python
 python scrape_ucs.py \
@@ -51,9 +58,9 @@ This will create a custom ucs 'pack' under `dataset/raw/pack_name`.
 You may also add your own `.ucs` files. However, if it is a plain `.ucs` file as
 created in StepEdit lite, you will need to enter some additional metadata about the charts.
 To do so, first gather the ucs files (in subfolders with audio/ucs) into some directory
-`ucs_packname` and copy it under `dataset/raw/`. If the ucs is originally from the
-official site, you may skip copying the audio if you wish. If it is a non-official
-ucs file, you should include the audio file. Then call
+`ucs_packname` and copy it under `dataset/raw/`. If the ucs is originally from the official site,
+you may skip copying the audio if you wish. If it is a non-official ucs file, you should include the 
+audio file. Then call
 
 `python ucs_add_metadata.py --ucs_dir=dataset/raw/ucs_packname`
 
@@ -63,10 +70,8 @@ found. Either way, some additional information will be needed like chart type,
 level, etc. For the files downloaded from the ucs site, this metadata is gathered
 automatically during the scraping process.
 
-Note that the first time scraping/working with ucs files, it will first scrape
-some general metadata and download the audio and templates from the UCS site. In
-addition, ucs files with metadata cannot be guaranteed to work properly with other
-programs like stepedit lite or some UCS viewers. If you wish to download the original
+Note that ucs files with metadata cannot be guaranteed to work properly with other
+programs like stepedit lite or various UCS viewing programs. If you wish to download the original
 UCS files themselves only, you can add `--without_metadata` when running `ucs_scrape.py`.
 
 ## Processing the data
