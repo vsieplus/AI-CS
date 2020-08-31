@@ -24,7 +24,7 @@ from train_util import report_memory, SummaryWriter, load_save, save_checkpoint,
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
-ODELS_DIR = os.path.join(ABS_PATH, 'models')
+MODELS_DIR = os.path.join(ABS_PATH, 'models')
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -554,7 +554,7 @@ def log_training_stats(writer, dataset, summary_json):
         'name': dataset.name,
         'chart_type': dataset.chart_type,
         'song_types': dataset.songtypes,
-        'step_artists': dataset.step_artists,
+        'step_artists': list(dataset.step_artists),
         'permutations': dataset.permutations,
         **hparam_dict
     }
