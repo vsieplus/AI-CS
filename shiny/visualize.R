@@ -170,7 +170,7 @@ grobHeight.custom_axis = heightDetails.custom_axis = function(x, ...) {
 
 ## END #####
 
-# produce a plot of step chart section (i.e. a still-shot of a stepchart)
+# produce a plot of step chart section (i.e. a still-shot of a stepchart section)
 # noteData should be an m x 2 df, with observations of time/step
 plotChartSection <- function(noteData, startTime = 15.0, endTime = 25.0, epsilon = 1e-5) {
   num_arrows <- nchar(as.character(noteData[1, 'step']))
