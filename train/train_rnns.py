@@ -36,7 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--finetune', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
     parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
-    parser.add_argument('--conditioning', type=bool, default=False, help='train a model w/w/o placement model conditioning')
+    parser.add_argument('--conditioning', action='store_true', default=False, help='train a model with placement model conditioning')
+    parser.add_argument('--load_to_memory', action='store_true', default=False, help='Load entire dataset to memory')
 
     args = parser.parse_args()
 
@@ -574,7 +575,7 @@ def main():
 
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
-    dataset = StepchartDataset(args.dataset_path)
+    dataset = StepchartDataset(args.dataset_path, args.load_to_memory)
 
     if not args.save_dir:
         if args.load_checkpoint and not arg.finetune:

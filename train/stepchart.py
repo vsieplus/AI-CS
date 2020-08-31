@@ -118,7 +118,7 @@ def collate_charts(batch):
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
-	def __init__(self, dataset_json, load_to_memory=True):
+	def __init__(self, dataset_json, load_to_memory):
 		"""dataset_json: path to json file with dataset metadata"""
 		assert(os.path.isfile(dataset_json))
 		with open(dataset_json, 'r') as f:
