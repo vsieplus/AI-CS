@@ -1,5 +1,6 @@
 # step <-> index tokenization functions
 
+import itertools
 import math
 
 import torch
@@ -218,10 +219,9 @@ def calc_arrangements(starting_index, num_indices, max_index):
 		return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
 					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
 
-
 def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
 	"""
-	return all the vocabulary indices for which the arrow at arrow_idx has
+	return all the vocabulary indices for which the arrow at arrow_idx has any
 	of the given arrow_state(s)
 	"""
 	num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
@@ -229,16 +229,22 @@ def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
 
 	note = ['.'] * num_arrows
 
+	other_idxs = [i for i in range(num_arrows) if i != arrow_idx]
+	other_permutations = list(itertools.product(STATE_TO_UCS.values(), repeat=len(other_idxs)))
+
 	for state in arrow_states:
-		note[arrow_idx] = STATE_TO_UCS[state]
-		
-		for other_idx in range(num_arrows):
-			if other_idx == arrow_idx:
-				continue
-				
-			for other_state in range(NUM_ARROW_STATES):
-				note[other_idx] = STATE_TO_UCS[other_state]
-				step_states.append(''.join(note))
+		note[arrow_idx] = STATE_TO_UCS[state]	
+			
+		for permutation in other_permutations:
+			for i, step in enumerate(permutation):
+				note[other_idxs[i]] = step
+
+			step_states.append(''.join(note))
+
+		if special_tokens:
+			for idx, special_token in special_tokens.items():
+				if special_token[arrow_idx] == state:
+					step_states.append(special_token)
 
 	step_tensors = sequence_to_tensor(step_states)
 	step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, special_tokens)

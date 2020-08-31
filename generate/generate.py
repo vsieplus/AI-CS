@@ -26,6 +26,7 @@ SPLIT_SUBDIV = SPLITS_PER_BEAT * BEATS_PER_MEASURE   # splits per measure
 # SPLITS_PER_BEAT = 1 / ((FAKE_BPM / 60 ) / CHART_FRAME_RATE)
 # force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split 
 # 10 spb > ~600bpm - only affects default scroll speed
+# TODO if bpm provided, convert/approximate subdivisions
 FAKE_BPM = 60 * (CHART_FRAME_RATE / SPLITS_PER_BEAT)
 
 def parse_args() -> argparse.Namespace:
@@ -39,8 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--song_artist', type=str, help='song artist')
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=25, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.08, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-k', type=int, default=10, help='Sample steps from the top k candidates if using top-k')
+    parser.add_argument('-p', type=float, default=0.025, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
     parser.add_argument('-b', type=int, default=10, help='Beam size for beam search')
 
     return parser.parse_args()
@@ -80,11 +81,8 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
             elif step == 'M':
                 curr_holds.add(j)
             elif step == 'W':
-                if j in curr_holds:
-                    curr_holds.remove(j)
-                else:
-                    print("hmm")
-
+                curr_holds.remove(j)
+            
             filtered_note += step
             
         splits.append(filtered_note)
@@ -236,7 +234,7 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
                     candidates.extend(expand_beam(logits.squeeze(), seq, beam_score, z, hold_indices, step_indices,
                         chart_type, special_tokens))
 
-                # sort by beam score (accumulate (abs) log probs) -> keep lowest b candidates
+                # sort by beam score (accumulated (abs) log probs) -> keep lowest b candidates
                 candidates = sorted(candidates, key=lambda x:x[1])[:b]
                 
                 # if the last element in the sequence, keep the one with the best score
@@ -302,18 +300,15 @@ def filter_steps(token_str, hold_indices, step_indices):
                 # if previous step 'X', change X -> M, and leave this as 'W' (fill in 'H' later)
                 new_hold_indices.append(j)
                 step_indices.remove(j)
-            elif j in hold_indices:
-                hold_indices.remove(j)
             else:
-                token = '.'
+                # should have  j in hold_indices
+                hold_indices.remove(j)
         elif token == 'H' and j not in hold_indices:
             hold_indices.add(j)
             #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' (hold start)
             if j in step_indices:
                 new_hold_indices.append(j)
                 step_indices.remove(j)
-            else:
-                token = '.'
         elif token == 'X':
             step_indices.add(j)
         elif token == '.':
@@ -359,10 +354,10 @@ def predict_step(logits, sampling, k, p, hold_indices, step_indices, chart_type,
     """predict the next step given model logits and a sampling strategy"""
     # shape: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
     
     if sampling == 'top-k':
         # sample from top k probabilites + corresponding indices (sorted)    
+        dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
         probs, indices = torch.topk(dist, k=k, dim=-1)
         sample = torch.multinomial(torch.nn.functional.softmax(probs, dim=-1), num_samples=1)
 
@@ -388,9 +383,11 @@ def predict_step(logits, sampling, k, p, hold_indices, step_indices, chart_type,
         pred_idx = torch.multinomial(filtered_dist, num_samples=1)              
     elif sampling == 'greedy':
         # take the most likely token
+        dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
         pred_idx = torch.topk(dist, k=1, dim=-1)[1][0]
     elif sampling == 'multinom':
         # sample from the bare distribution
+        dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
         pred_idx = torch.multinomial(dist, num_samples=1)
 
     return pred_idx
@@ -429,6 +426,9 @@ def main():
         model_summary = json.loads(f.read())
 
     placement_model, selection_model, special_tokens = get_gen_config(model_summary, args.model_dir, device)
+
+    print(f'Generating a {model_summary['chart_type'].split('-')[-1]} {args.level} chart for {args.song_name}')
+    print(f'Decoding strategy: {args.sampling} ; k: {args.k}, p: {args.p}, b: {args.b}')
 
     # a list of pairs of (absolute time (s), step [ucs str format])
     chart_data, _ = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
