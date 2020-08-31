@@ -1,5 +1,6 @@
 # utility classes/functions for loading step charts
 
+from functools import lru_cache
 import json
 import math
 import os
@@ -18,7 +19,6 @@ from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRA
 from step_tokenize import sequence_to_tensor, step_sequence_to_targets, step_features_to_str, step_index_to_features
 from train_util import convert_chartframe_to_melframe
 
-# cache dataset tensors/other values https://discuss.pytorch.org/t/cache-datasets-pre-processing/1062/8
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATA_DIR = os.path.join('..', 'data')
 CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
@@ -28,10 +28,8 @@ R_CHART_UTIL_PATH = os.path.join(ABS_PATH, '..', 'shiny', 'util.R')
 memory = Memory(CACHE_DIR, verbose=0, compress=True)
 # to reset cache: memory.clear(warn=False)
 
-# add caching to extract_audio_feats and some seq. conversion functions
+# add caching to extract_audio_feats and some seq. conversion functions (below)
 extract_audio_feats = memory.cache(extract_audio_feats)
-sequence_to_tensor = memory.cache(sequence_to_tensor)
-step_sequence_to_targets = memory.cache(step_sequence_to_targets)
 
 # import chart util functions from r script
 robj.r.source(R_CHART_UTIL_PATH)	
@@ -289,12 +287,9 @@ CHART_PERMUTATIONS = {
 	}
 }
 
-STEP_PATTERNS = {
-	'ucs': re.compile('[XMHW]'),
-	'ssc': re.compile('[1-3]')
-}
+STEP_PATTERNS = re.compile('[XMHW]')
 
-@memory.cache
+@lru_cache(maxsize=4096)
 def permute_steps(steps, chart_type, permutation_type):
 	# permutation numbers signify moved location of original step
 	#   ex) steps = '10010'
@@ -307,7 +302,6 @@ def permute_steps(steps, chart_type, permutation_type):
 
 	return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
 
-@memory.cache
 def parse_notes(notes, chart_type, permutation_type, filetype):
 	# [# frames] track which (10 ms) chart frames have steps
 	step_placement_frames = []
@@ -315,26 +309,29 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	# [# frames, # step features] - sequence of non-empty steps with associated frame numbers
 	step_sequence = []
 
+	# use UCS notation for less ambiguity
+	do_convert = filetype == 'ssc'
+	if do_convert:
+		converted_sequence = robj.r.convertToUCS([steps for _, _, _, steps in notes])
+
 	for i, (_, _, time, steps) in enumerate(notes):
 		if time < 0:
 			continue
 
+		step_to_check = converted_sequence[i] if do_convert else steps
+
 		# for each frame, track absolute frame number
-		step_this_frame = STEP_PATTERNS[filetype].search(steps)
+		step_this_frame = STEP_PATTERNS.search(step_to_check)
 		if step_this_frame:
 			step_placement_frames.append(int(round(time * CHART_FRAME_RATE)))
 
 		# only store non-empty steps in the sequence
 		if step_this_frame:
-			step_sequence.append(permute_steps(steps, chart_type, permutation_type))
-
-	# use UCS notation for less ambiguity
-	if filetype == 'ssc':
-		step_sequence = robj.r.convertToUCS(step_sequence)
+			step_sequence.append(permute_steps(step_to_check, chart_type, permutation_type))
 
 	return step_placement_frames, step_sequence
 
-@memory.cache
+@lru_cache(maxsize=4096)
 def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
 	placement_target = torch.zeros(audio_length, dtype=torch.long)
