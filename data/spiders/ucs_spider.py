@@ -17,11 +17,12 @@ from spiders.ucs_meta_spider import UCS_BASE_DATA_PATH
 ABS_PATH = Path(__file__).parent.absolute()
 
 import sys
-sys.path.append(os.path.join(str(ABS_PATH), "../processing"))
+sys.path.append(os.path.join(str(ABS_PATH), os.path.join('..', 'processing')))
 from util import ez_name
 
 UCS_STEPARTIST_URL = 'http://www.piugame.com/bbs/board.php?ucs_event_no=&bo_table=ucs&sca=&sop=and&sfl=wr_name%2C1&stx='
 UCS_SONG_URL = 'http://www.piugame.com/bbs/board.php?ucs_event_no=&bo_table=ucs&sca=&sop=and&sfl=ucs_song_no%2C1&stx='
+UCS_BASE_URL = 'http://www.piugame.com/bbs/board.php?bo_table=ucs'
 BASE_DL_URL = 'http://piugame.com/bbs/'
 BASE_LOGIN_URL = 'https://www.piugame.com/bbs/piu.login_check.php'
 
@@ -34,8 +35,8 @@ class UCS_Spider(scrapy.Spider):
     name = 'ucs_spider'
 
     # specific > generic (step_artist > song > level > mix > ...)
-    def __init__(self, pack_name, step_artists, min_level, max_level,
-        chart_type, songs, start_date, end_date, meta_json_path, without_metadata):
+    def __init__(self, pack_name, step_artists, min_level, max_level, chart_type, songs, 
+                start_date, end_date, meta_json_path, without_metadata):
 
         self.pack_name = pack_name
 
@@ -61,19 +62,25 @@ class UCS_Spider(scrapy.Spider):
         elif songs:
             self.start_urls = [UCS_SONG_URL + song_title for song_title in songs]
         else:
-            start_urls = [BASE_LOGIN_URL]
+            self.start_urls = [UCS_BASE_URL]
         
         # login to ucs site to enable downloads using 'requests'
-        # https://stackoverflow.com/questions/11892729/how-to-log-in-to-a-website-using-pythons-requests-module/17633072#17633072
-        print('Please enter login credentials: ')
-        user_email = input('User Email: ')
-        user_pw = getpass('Password: ')
-
-        payload = {'mb_id': user_email, 'mb_password': user_pw}
-
         self.session_requests = requests.session()
-        result = self.session_requests.post(BASE_LOGIN_URL, data=payload,
-            headers={'referer': BASE_LOGIN_URL})
+        not_logged_in = True
+        while not_logged_in:
+            print('Please enter login credentials: ')
+            user_email = input('User Email: ')
+            user_pw = getpass('Password: ')
+
+            payload = {'mb_id': user_email, 'mb_password': user_pw}
+
+            result = self.session_requests.post(BASE_LOGIN_URL, data=payload, headers={'referer': BASE_LOGIN_URL})
+            if 'wrong Password' in result.text:
+                print('Login failed, please try again')
+            else:
+                print('Login successful!')
+                not_logged_in = False
+
 
     def parse(self, response):
         result = self.session_requests.get(response.url, headers={'referer': response.url})
@@ -114,11 +121,19 @@ class UCS_Spider(scrapy.Spider):
 
             if correct_chart_type and valid_level:
                 stepmaker = response.xpath('.//td[@class="share_stepmaker"]/text()')[0].strip().lower()
-                ucs_code = re.search(UCS_CODE_PATTERN, tostring(response, encoding='unicode')).group(1)
+                code_search = re.search(UCS_CODE_PATTERN, tostring(response, encoding='unicode'))
+
+                if code_search:
+                    ucs_code = code_search.group(1)
+                else:
+                    return
                 
                 dl_link = response.xpath('.//a[@class="share_download2"]/@href')[0]
 
-                this_ucs_metadata = self.UCS_METADATA[ucs_code]
+                if ucs_code in self.UCS_METADATA:
+                    this_ucs_metadata = self.UCS_METADATA[ucs_code]
+                else:
+                    return
 
                 ucs_dl_dict = {**this_ucs_metadata, **{'url': BASE_DL_URL + dl_link, 
                     'name': ucs_code, 'step_artist': stepmaker, 
@@ -137,16 +152,16 @@ class UCS_Spider(scrapy.Spider):
         clean_packname = ez_name(ucs_dict['pack_name'])
         clean_artist = ez_name(ucs_dict['step_artist'])
         
-        ucs_folder_name = ucs_dict['chart_type'] + str(ucs_dict['meter']) + '_' + clean_artist
+        ucs_filename = ucs_dict['chart_type'] + str(ucs_dict['meter']) + '_' + clean_artist
         
-        ucs_dir = os.path.join(OUT_DIR, clean_packname, clean_title + '_' + ucs_folder_name)
+        ucs_dir = os.path.join(OUT_DIR, clean_packname, clean_title)
         if not os.path.isdir(ucs_dir):
             os.makedirs(ucs_dir)
 
-        self.add_chart_data(chart_txt, ucs_dict, ucs_dir, ucs_dict['without_metadata'])
+        self.add_chart_data(chart_txt, ucs_dict, ucs_dir, ucs_filename, ucs_dict['without_metadata'])
 
     # write the chart data to the specified file
-    def add_chart_data(self, chart_txt, ucs_dict, dir_fp, without_metadata):
+    def add_chart_data(self, chart_txt, ucs_dict, dir_fp, ucs_filename, without_metadata):
         ucs_text = ''
         if not without_metadata:
             for k,v in ucs_dict.items():
@@ -154,6 +169,6 @@ class UCS_Spider(scrapy.Spider):
 
         ucs_text += chart_txt
 
-        ucs_fp = os.path.join(dir_fp, ucs_dict['name'] + '.ucs')
+        ucs_fp = os.path.join(dir_fp, ucs_filename + '.ucs')
         with open(ucs_fp, 'w') as f:
             f.write(ucs_text)

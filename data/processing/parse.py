@@ -307,7 +307,7 @@ def parse_ucs_txt(chart_txt):
 
     # guess audio file name based on CS__ code / filename (if no metadata, skip - search later)
     if 'name' in attrs:
-        attrs['music'] = (attrs['name'] + '.mp3')
+        attrs['music'] = os.path.join(UCS_BASE_PATH, attrs['name'], attrs['name'] + '.mp3')
 
     # represent charts as singleton list
     attrs['charts'] = [{
