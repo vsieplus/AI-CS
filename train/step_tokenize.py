@@ -23,12 +23,19 @@ UCS_STATE_DICT = {
 	'W': 3		# released
 }
 
+STATE_TO_UCS = {
+	0: '.',
+	1: 'X',
+	2: 'H',
+	3: 'W'
+}
+
 # convert a sequence of steps ['00100', '10120', ...] -> input tensor
 def sequence_to_tensor(sequence):
 	# shape [abs # of frames, 4 x # arrows (20 for single, 40 for double)]
 	#   (for each arrow, mark 1 of 4 possible states - off, step, hold, release)
-	#	(should be already converted to UCS notation)
-	# eg. ['10002', '01003'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
+	#	(should be already converted to (reduced) UCS notation)
+	# eg. ['X000H', '0X00W'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
 	#                             -downleft-   -upleft- ....   -downright-
 	#                            [0, 0, 0, 0, 0, 1, 0, 0, ..., 0, 0, 0, 1]]
 	step_tensors = []
@@ -212,3 +219,28 @@ def calc_arrangements(starting_index, num_indices, max_index):
 					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
 
 
+def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
+	"""
+	return all the vocabulary indices for which the arrow at arrow_idx has
+	of the given arrow_state(s)
+	"""
+	num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
+	step_states = []
+
+	note = ['.'] * num_arrows
+
+	for state in arrow_states:
+		note[arrow_idx] = STATE_TO_UCS[state]
+		
+		for other_idx in range(num_arrows):
+			if other_idx == arrow_idx:
+				continue
+				
+			for other_state in range(NUM_ARROW_STATES):
+				note[other_idx] = STATE_TO_UCS[other_state]
+				step_states.append(''.join(note))
+
+	step_tensors = sequence_to_tensor(step_states)
+	step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, special_tokens)
+
+	return step_indices

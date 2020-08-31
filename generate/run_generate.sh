@@ -8,4 +8,4 @@ python generate.py \
     --chart_format 'ucs' \
     --song_name 'asdlr' \
     --song_artist 'idk' \
-    --sampling 'top-k' \
+    --sampling 'beam-search' \

@@ -34,7 +34,7 @@ PLACEMENT_UNROLLING_LEN = 100
 
 # Thresholds for peak picking
 MIN_THRESHOLD = 0.10
-MAX_THRESHOLD = 0.30
+MAX_THRESHOLD = 0.25
 MAX_CHARTLEVEL = 28
 
 # TODO (experiments)

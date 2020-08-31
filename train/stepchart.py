@@ -203,8 +203,7 @@ class StepchartDataset(Dataset):
 				# create new song if needed
 				song_path = os.path.join(DATA_DIR, attrs['music_fp'])
 				if song_path not in self.songs:
-					self.songs[song_path] = Song(song_path, attrs['title'], attrs['artist'],
-						  						 attrs['genre'], attrs['songtype'])
+					self.songs[song_path] = Song(song_path, attrs['title'], attrs['artist'], attrs['genre'], attrs['songtype'])
 					self.n_unique_songs += 1
 
 				for chart_idx in chart_indices:
@@ -223,8 +222,7 @@ class StepchartDataset(Dataset):
 
 		song_path = os.path.join(DATA_DIR, attrs['music_fp'])
 
-		chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path],
-					   orig_filetype, permutation, self.special_tokens)
+		chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path], orig_filetype, permutation, self.special_tokens)
 
 		if first:
 			self.vocab_size += chart.n_special_tokens
@@ -251,8 +249,7 @@ class StepchartDataset(Dataset):
 				if not valid_level:
 					continue
 
-				valid_author = (not self.step_artists or self.step_artists
-								and chart_attrs['credit'] in self.step_artists)
+				valid_author = (not self.step_artists or self.step_artists and chart_attrs['credit'] in self.step_artists)
 
 				if valid_author:
 					chart_indices.append(i)
@@ -387,14 +384,12 @@ class Chart:
 
 		self.permutation_type = permutation_type
 
-		(step_placement_frames, step_sequence) = parse_notes(chart_attrs['notes'], self.chart_type,
-														     self.permutation_type, self.filetype)
+		(step_placement_frames,
+		 step_sequence) = parse_notes(chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
 
 		(self.placement_targets,
 		 self.first_frame, 
-		 self.last_frame) = placement_frames_to_targets(step_placement_frames,
-		  			   								    self.song.audio_feats.size(1),
-													  	self.song.sample_rate)
+		 self.last_frame) = placement_frames_to_targets(step_placement_frames, self.song.audio_feats.size(1), self.song.sample_rate)
 
 		self.step_sequence = sequence_to_tensor(step_sequence)
 		(self.step_targets,
