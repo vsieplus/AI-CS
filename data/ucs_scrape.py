@@ -4,9 +4,10 @@ import os
 import argparse
 import datetime
 
-from spiders import ucs_spider, ucs_meta_spider
-from ucs_add_metadata import META_JSON_PATH, crawl_base_download, crawl_meta_download
 from scrapy.crawler import CrawlerProcess
+
+from spiders import ucs_spider, ucs_meta_spider
+from ucs_scrape_meta import META_JSON_PATH
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -36,13 +37,15 @@ def main():
 
     process = CrawlerProcess()
 
-    # download base ucs/metadata if not yet already downloaded
-    if not os.path.isdir(ucs_meta_spider.UCS_BASE_DATA_PATH):
-        crawl_base_download()
-    
+    # user should download base ucs/metadata if not yet already downloaded    
     if not os.path.isfile(META_JSON_PATH):
-        crawl_meta_download()
+        print('Please scrape ucs metadata by calling python ucs_scrape_meta.py --scrape_meta')
+        return
 
+    if not os.path.isdir(ucs_meta_spider.UCS_BASE_DATA_PATH):
+        print('Please download base ucs files by calling python ucs_scrape_meta.py --download')
+        return
+        
     start_date_obj = get_date(args.start_date)
     end_date_obj = get_date(args.end_date)
 

@@ -2,15 +2,11 @@
 
 import argparse
 import json
-import pathlib
 import glob
 import os
 
 from spiders import ucs_meta_spider
-from scrapy.crawler import CrawlerProcess
-
-ABS_PATH = pathlib.Path(__file__).parent.absolute()
-META_JSON_PATH = os.path.join(str(ABS_PATH), 'dataset/00_ucs_metadata.json')
+from ucs_scrape_meta import META_JSON_PATH
 
 def add_metadata(ucs_dir, ucs_metadata):
     ucs_fps = glob.glob(os.path.join(ucs_dir, '*/*.ucs'))
@@ -56,43 +52,24 @@ def add_metadata(ucs_dir, ucs_metadata):
 
         print("Added metadata to {}\n".format(ucs_fp))
 
-def crawl_base_download():
-    process = CrawlerProcess()
-    process.crawl(ucs_meta_spider.UCS_BaseDownloadSpider)
-    process.start()
-
-def crawl_meta_download():
-    process = CrawlerProcess(settings={"FEEDS":{META_JSON_PATH: {"format": "json"}}})
-
-    process.crawl(ucs_meta_spider.UCS_MetaSpider)
-    process.start(stop_after_crawl=False)
-
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ucs_dir', type=str, help='directory with base .ucs files', default=None)
-    parser.add_argument('--scrape_meta', action='store_true', default=False, 
-        help='scrape generic ucs metadata')
-    parser.add_argument('--download', action='store_true', default=False,
-        help='download UCS files from the site')
-
+    parser.add_argument('--ucs_dir', required=True, type=str, help='directory with base .ucs files', default=None)
     args = parser.parse_args()
 
-    # check if ucs metadata file exists, or if want to (re)scrape
-    metajson_exists = os.path.isfile(META_JSON_PATH)
-    if args.scrape_meta or not metajson_exists:
-        if metajson_exists:
-            os.system('rm ' + META_JSON_PATH)
+    # check if ucs metadata file exists    
+    if not os.path.isfile(META_JSON_PATH):
+        print('Please scrape ucs metadata by calling python ucs_scrape_meta.py --scrape_meta')
+        return
 
-        crawl_meta_download()
-
-    if args.download or not os.path.isdir(ucs_meta_spider.UCS_BASE_DATA_PATH):
-        crawl_base_download()
+    if not os.path.isdir(ucs_meta_spider.UCS_BASE_DATA_PATH):
+        print('Please download base ucs files by calling python ucs_scrape_meta.py --download')
+        return
 
     with open(META_JSON_PATH, 'r') as f:
-        UCS_METADATA = json.loads(f.read())[0]
+        ucs_metadata = json.loads(f.read())[0]
 
-    if args.ucs_dir:
-        add_metadata(args.ucs_dir, UCS_METADATA)
+    add_metadata(args.ucs_dir, ucs_metadata)
 
 if __name__ == '__main__':
     main()
