@@ -2,11 +2,11 @@
     <h3>About</h3>
     <p>
       Thanks for visiting AI Custom Step! This project was inspired by
-      <a href='https://arxiv.org/abs/1703.06891'>Dance Dance Convolution</a> (Donahue et. al, 2017),
+      <a href='https://arxiv.org/abs/1703.06891' target='_blank'>Dance Dance Convolution</a> (Donahue et. al, 2017),
       and is an extension and adaptation of that project to PIU. Many things were kept similar, but
       many modifications were also added. The linked paper has a great explanation of the approach taken
       towards step chart generation. If you're interested in learning more about this specific project and its implementation,
-      you may explore the repository on <a href='https://github.com/vsieplus/AI-CS'>Github</a>.
+      you can check out the repository on <a href='https://github.com/vsieplus/AI-CS' target='_blank'>Github</a>.
     </p>
     
     <h3>Decoding strategies</h3>
@@ -23,9 +23,10 @@
             <li><strong>multinom</strong>: randomly sample from the unfiltered distribution</li>
         </ul>
 
-        From experimentation, top-p with <i>p</i> ~ 0.05-0.1 and top-k with <i>k</i> ~ 10-30 seem to give the most
-        consistent and fluent sequence generations. Beam search with <i>b</i> ~ 20 also produces good sequences.
-        Greedy sampling tends to degenerate to repetition very quickly, while multinom may frequently sample unlikely steps. <br/><br/>
+        From experimentation, top-p with <i>p</i> = 0.05-0.1 and top-k with <i>k</i> = 10-30 seem to give the most
+        consistent and fluent sequence generations. Beam search produces less consistent sequences, but can still be okay. Note that
+        beam search will take longer to run due to the more extensive search algorithm it uses. Greedy sampling tends
+        to degenerate to repetition very quickly, while multinom may frequently sample unlikely steps. <br/><br/>
 
         If we make a comparison to how step makers select steps, it seems that top-p, top-k, and beam-search are 
         all reasonable approximations. At any given frame in the chart, our choice for the next step is often 
@@ -42,10 +43,9 @@
 
     <h3>FAQ</h3>
         <ol>
-            <li><strong>Is there a way to change the display bpm or scroll speed?</strong> idk</li>
             <li><strong>How can I play the generated chart?</strong> For official PIU UCS songs, you may upload ucs files with your
-                account on the Pump it Up <a href='http://www.piugame.com/piu.ucs/ucs.intro/ucs.intro.php'>UCS site</a> and add 
-                them to your profile. You may also play official and non-official song charts using <a href='http://stepf2.blogspot.com/'>StepF2/P1</a>
+                account on the Pump it Up <a href='http://www.piugame.com/piu.ucs/ucs.intro/ucs.intro.php' target='_blank'>UCS site</a> and add 
+                them to your profile. You may also play official and non-official song charts using <a href='http://stepf2.blogspot.com/' target='_blank'>StepF2/P1</a>
                 with ssc files (put subfolders in a pack under the <code>Songs/</code> folder). </li>
             <li><strong>Can I download the models to my computer?</strong> See the <code>train/models/</code> 
                 directory in the repository's master branch.</li>
@@ -54,6 +54,8 @@
                 (e.g. AICS v1.0) and give it a curated training set with specific types of examples. Functionality
                 for this is also provided in the linked repository.</li>
         </ol>
+
+        <strong>Others:</strong> Feel free to raise an issue on the github repo for futher questions.
 
 </div>
 

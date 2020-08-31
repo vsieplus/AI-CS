@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
     parser.add_argument('-k', type=int, default=10, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.025, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-p', type=float, default=0.1, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
     parser.add_argument('-b', type=int, default=10, help='Beam size for beam search')
 
     return parser.parse_args()
@@ -103,7 +103,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
 
         charts_to_save.append((chart_fp, chart_txt))
 
-    # convert steps from ucs -> ssc format + save if needed
+    # convert steps from ucs -> ssc format + save if needed ######## TODO fix output ########
     if chart_format == 'ssc' or chart_format == 'both':
         chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 
             'MUSIC': os.path.join(out_dir, audio_filename), 'OFFSET': 0.0, 'BPMS': f'0.0={FAKE_BPM}', 
@@ -427,7 +427,7 @@ def main():
 
     placement_model, selection_model, special_tokens = get_gen_config(model_summary, args.model_dir, device)
 
-    print(f'Generating a {model_summary['chart_type'].split('-')[-1]} {args.level} chart for {args.song_name}')
+    print(f'Generating a {model_summary["chart_type"].split("-")[-1]} {args.level} chart for {args.song_name}')
     print(f'Decoding strategy: {args.sampling} ; k: {args.k}, p: {args.p}, b: {args.b}')
 
     # a list of pairs of (absolute time (s), step [ucs str format])
