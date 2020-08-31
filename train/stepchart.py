@@ -118,7 +118,7 @@ def collate_charts(batch):
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
-	def __init__(self, dataset_json):
+	def __init__(self, dataset_json, load_to_memory=True):
 		"""dataset_json: path to json file with dataset metadata"""
 		assert(os.path.isfile(dataset_json))
 		with open(dataset_json, 'r') as f:
@@ -145,14 +145,18 @@ class StepchartDataset(Dataset):
 		# store the file paths and chart_indices to load
 		self.chart_ids = self.filter_fps([os.path.join(DATA_DIR, fp) for fp in metadata['json_fps']])
 		self.print_summary()
-		self.compute_stats()
+		self.compute_stats(load_to_memory)
+		self.load_to_memory = load_to_memory
 
 	def __len__(self):
 		return len(self.chart_ids)
 
 	def __getitem__(self, idx):
-		chart_fp, chart_idx, permutation = self.chart_ids[idx]
-		return self.load_chart(chart_fp, chart_idx, permutation)
+		if self.load_to_memory:
+			return self.charts[idx]
+		else:
+			chart_fp, chart_idx, permutation = self.chart_ids[idx]
+			return self.load_chart(chart_fp, chart_idx, permutation)
 
 	def print_summary(self):
 		print(f'Dataset name: {self.name}')
@@ -165,11 +169,14 @@ class StepchartDataset(Dataset):
 			print(f'Maximum chart level: {self.max_level}')
 		print(f'Chart Permutations: {self.permutations}')
 
-	def compute_stats(self):
+	def compute_stats(self, load_to_memory):
 		print("Caching dataset...")
 		
 		# load once at start to compute overall vocab size, various stats + cache tensors
 		charts = [self.load_chart(fp, idx, perm, first=True) for fp, idx, perm in self.chart_ids]
+
+		if load_to_memory:
+			self.charts = charts
 
 		self.n_unique_charts = self.__len__() // len(self.permutations)
 		self.n_steps = 0
@@ -302,6 +309,7 @@ def permute_steps(steps, chart_type, permutation_type):
 
 	return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
 
+@memory.cache
 def parse_notes(notes, chart_type, permutation_type, filetype):
 	# [# frames] track which (10 ms) chart frames have steps
 	step_placement_frames = []
@@ -331,7 +339,6 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 
 	return step_placement_frames, step_sequence
 
-@lru_cache(maxsize=4096)
 def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
 	placement_target = torch.zeros(audio_length, dtype=torch.long)
