@@ -133,7 +133,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
     print(f'Saved to {out_dir}')
 
 def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, 
-                   n_step_features, special_tokens, sampling, k, p, b, device=torch.device('cpu')):
+                   n_step_features, special_tokens, conditioned, sampling, k, p, b, device=torch.device('cpu')):
     print('Generating chart - this may take a bit...')
 
     (placements,
@@ -141,6 +141,9 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
      placement_hiddens,
      sample_rate) = generate_placements(placement_model, audio_file, chart_type,
                                         chart_level, n_step_features, device)
+
+    if not conditioned:
+        placement_hiddens = None
 
     chart_data = generate_steps(selection_model, placements, placement_hiddens, n_step_features,
                                 chart_type, sample_rate, special_tokens, sampling, k, p, b, device)
@@ -201,6 +204,8 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
     hold_indices = [set() for _ in range(b)] if sampling == 'beam-search' else set()
     step_indices = [set() for _ in range(b)] if sampling == 'beam-search' else set()
 
+    conditioned = placement_hiddens is not None
+
     selection_model.eval()
 
     # for beam search, track the b most likely token sequences + 
@@ -216,7 +221,7 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
             placement_melframe = placement_frames[i].item()
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
-            placement_hidden = placement_hiddens[0, placement_melframe] if i > 0 else None
+            placement_hidden = placement_hiddens[0, placement_melframe] if conditioned and i > 0 else None
 
             if sampling == 'beam-search':
                 if i == 0:
@@ -426,13 +431,14 @@ def main():
         model_summary = json.loads(f.read())
 
     placement_model, selection_model, special_tokens = get_gen_config(model_summary, args.model_dir, device)
+    conditioned = model_summary['conditioning']
 
     print(f'Generating a {model_summary["chart_type"].split("-")[-1]} {args.level} chart for {args.song_name}')
     print(f'Decoding strategy: {args.sampling} ; k: {args.k}, p: {args.p}, b: {args.b}')
 
     # a list of pairs of (absolute time (s), step [ucs str format])
     chart_data, _ = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
-                                   args.level, model_summary['selection_input_size'], special_tokens, 
+                                   args.level, model_summary['selection_input_size'], special_tokens, conditioned,
                                    args.sampling, args.k, args.p, args.b, device)
 
     # convert indices -> chart output format + save to file

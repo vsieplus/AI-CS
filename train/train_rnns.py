@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--finetune', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
     parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
+    parser.add_argument('--conditioning', type=bool, default=False, help='train a model w/w/o placement model conditioning')
 
     args = parser.parse_args()
 
@@ -89,7 +90,7 @@ def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length,
     
     return torch.tensor(sequence_lengths, dtype=torch.long, device=device)
 
-def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_train, curr_train_epoch=0):
+def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_condition, do_train, curr_train_epoch=0):
     """train or eval the placement models with the specified parameters on the given batch"""
     if do_train:
         clstm.train()
@@ -109,7 +110,10 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
     placement_targets = batch['placement_targets'].to(device)
 
     # final_shape -> [batch, # of nonempty chart frames, hidden]
-    clstm_hiddens = [[] for _ in range(batch_size)]
+    if do_condition:
+        clstm_hiddens = [[] for _ in range(batch_size)]
+    else:
+        clstm_hiddens_padded = None
 
     # for unrolling/bptt
     num_unrollings = (num_audio_frames // PLACEMENT_UNROLLING_LEN) + 1
@@ -163,10 +167,11 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
                 b_dists = F.softmax(logits.detach()[b, :audio_lengths[b]], dim=-1)
                 all_scores.append(b_dists[:, 1])
             
-            curr_unroll_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
+            if do_condition:
+                curr_unroll_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
 
-            # only clstm hiddens for chart frames with non-empty step placements
-            clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_placements])
+                # only clstm hiddens for chart frames with non-empty step placements
+                clstm_hiddens[b].append(clstm_hidden[b, curr_unroll_placements])
         
         # compute total loss for this unrolling
         loss = 0
@@ -185,11 +190,12 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_t
         total_accuracy += get_placement_accuracy(predictions, targets, audio_lengths)
         total_loss += loss.item()
 
-    # pad clstm_hiddens across batch examples
-    # [batch, [step_sequence_length(variable), hidden]] -> [batch, max_step_sequence_length, hidden]
-    clstm_hiddens = [torch.cat(hiddens_seq, dim=0) for hiddens_seq in clstm_hiddens]
-    clstm_hiddens_padded = pad_sequence(clstm_hiddens, batch_first=True, padding_value=0)
-    clstm_hiddens.clear()
+    if do_condition:
+        # pad clstm_hiddens across batch examples
+        # [batch, [step_sequence_length(variable), hidden]] -> [batch, max_step_sequence_length, hidden]
+        clstm_hiddens = [torch.cat(hiddens_seq, dim=0) for hiddens_seq in clstm_hiddens]
+        clstm_hiddens_padded = pad_sequence(clstm_hiddens, batch_first=True, padding_value=0)
+        clstm_hiddens.clear()
 
     if do_train:
         targets = torch.cat(all_targets, dim=0)
@@ -223,6 +229,8 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
         rnn.train()
     else:
         rnn.eval()
+
+    do_condition = clstm_hiddens is not None
         
     # [batch, (max batch) sequence length, chart features] / [batch, (max) seq length]
     step_sequence = batch['step_sequence'].to(device)
@@ -285,7 +293,10 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
             # [batch, 1, # step features] / [batch, hiddens] - feed clstm hiddens 1 by 1
             step_inputs = step_sequence[:, abs_step, :].unsqueeze(1)
             
-            curr_clstm_hiddens = clstm_hiddens[:, abs_step]
+            if do_condition:
+                curr_clstm_hiddens = clstm_hiddens[:, abs_step]
+            else:
+                curr_clstm_hiddens = None
 
             # ones or zeros
             curr_lengths = torch.ones(batch_size, dtype=torch.long, device=device)
@@ -314,7 +325,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
     return total_loss / num_frames, total_accuracy / num_frames
 
 def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion,
-             device, writer, curr_validation):
+             device, writer, curr_validation, do_condition):
     total_p_loss = 0
     total_s_loss = 0
     total_p_acc = 0
@@ -323,7 +334,7 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
     with torch.no_grad():
        for i, batch in enumerate(data_iter):
             p_loss, p_acc, hiddens = run_placement_batch(placement_clstm, None,
-                p_criterion, batch, device, writer, do_train=False)
+                p_criterion, batch, device, writer, do_condition, do_train=False)
 
             total_p_loss += p_loss
             total_p_acc += p_acc
@@ -346,7 +357,7 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, finetune, 
-               dataset, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=5):
+               dataset, do_condition, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=1):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
@@ -403,7 +414,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
             with torch.set_grad_enabled(train_clstm):
                 placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
-                    placement_optim, PLACEMENT_CRITERION, batch, device, writer,
+                    placement_optim, PLACEMENT_CRITERION, batch, device, writer, do_condition,
                     do_train=train_clstm, curr_train_epoch=epoch)
 
             with torch.set_grad_enabled(train_srnn):
@@ -438,7 +449,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
             (placement_valid_loss, placement_valid_acc, selection_valid_loss,
              selection_valid_acc) = evaluate(placement_clstm, selection_rnn, valid_iter, 
                                              PLACEMENT_CRITERION, SELECTION_CRITERION, device, 
-                                             writer, epoch / validate_every_x_epoch)
+                                             writer, epoch / validate_every_x_epoch, do_condition)
                 
             print(f'\tAvg. validation placement loss per frame: {placement_valid_loss:.5f}')
             print(f'\tAvg. validation selection loss per frame: {selection_valid_loss:.5f}')
@@ -474,18 +485,19 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     (placement_test_loss, placement_test_acc,
      selection_test_loss, selection_test_acc) = evaluate(placement_clstm, selection_rnn, test_iter, 
                                                          PLACEMENT_CRITERION, SELECTION_CRITERION,
-                                                         device, writer, -1)
+                                                         device, writer, -1, do_condition)
 
     # save training summary stats to json file
+    # load initial summary
+    with open(os.path.join(save_dir, 'summary.json'), 'r') as f:
+        summary_json = json.loads(f.read())
     summary_json = {
+        **summary_json,
         'epochs_trained': num_epochs,
-        'train_examples': len(train_iter.dataset),
-        'valid_examples': len(valid_iter.dataset),
-        'test_examples': len(test_iter.dataset),
         'placement_test_loss': placement_test_loss,
         'placement_test_accuracy': placement_test_acc,
         'selection_test_loss': selection_test_loss,
-        'selection_test_accuracy': selection_test_acc
+        'selection_test_accuracy': selection_test_acc,
     }
 
     summary_json = log_training_stats(writer, dataset, summary_json)
@@ -493,13 +505,9 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
 
-    # save special tokens for dataset vocabulary if needed
-    if dataset.special_tokens:
-        with open(os.path.join(save_dir, 'special_tokens.json'), 'w') as f:
-            f.write(json.dumps(dataset.special_tokens, indent=2))
-
 def log_training_stats(writer, dataset, summary_json):
     summary_json = {
+        **summary_json,
         'total_charts': len(dataset),
         'unique_charts': dataset.n_unique_charts,
         'unique_songs': dataset.n_unique_songs,
@@ -508,16 +516,8 @@ def log_training_stats(writer, dataset, summary_json):
         'min_level': dataset.min_level,
         'max_level': dataset.max_level,
         'avg_steps_per_second': dataset.avg_steps_per_second,
-        'vocab_size': dataset.vocab_size
-        **summary_json
+        'vocab_size': dataset.vocab_size,
     }
-
-    # add other dataset text values
-    writer.add_text('dataset_name', dataset.name)
-    writer.add_text('chart_type', dataset.chart_type)
-    writer.add_text('song_types', ', '.join(dataset.songtypes))
-    writer.add_text('step_artists', ', '.join(dataset.step_artists))
-    writer.add_text('permutations', ', '.join(dataset.permutations))
 
     hparam_dict = {
         'placement_lr': PLACEMENT_LR,
@@ -529,8 +529,16 @@ def log_training_stats(writer, dataset, summary_json):
         'selection_hidden_wt': SELECTION_HIDDEN_WEIGHT
     }
 
-    writer.add_hparams(hparam_dict, summary_json)
-    writer.close()
+    # add other dataset text values
+    if writer is not None:
+        writer.add_text('dataset_name', dataset.name)
+        writer.add_text('chart_type', dataset.chart_type)
+        writer.add_text('song_types', ', '.join(dataset.songtypes))
+        writer.add_text('step_artists', ', '.join(dataset.step_artists))
+        writer.add_text('permutations', ', '.join(dataset.permutations))
+
+        writer.add_hparams(hparam_dict, summary_json)
+        writer.close()
 
     hparam_dict = {
         'placement_channels': PLACEMENT_CHANNELS,
@@ -560,7 +568,7 @@ def get_dataloader(dataset):
 def main():
     args = parse_args()
 
-    device = torch.device('cpu') if args.cpu else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() and not args.cpu else 'cpu')
     print('Device:', device)
     torch.manual_seed(SEED)
 
@@ -588,8 +596,21 @@ def main():
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')
     print(datasets_size_str)
 
+    # save initial summary file
+    summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
+                    'test_examples': len(test_data), 'conditioning': args.conditioning }
+    summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
+    with open(os.path.join(args.save_dir, 'summary.json'), 'w') as f:
+        f.write(json.dumps(summary_json, indent=2))
+
+    # save special tokens for dataset vocabulary if needed
+    if dataset.special_tokens:
+        with open(os.path.join(args.save_dir, 'special_tokens.json'), 'w') as f:
+            f.write(json.dumps(dataset.special_tokens, indent=2))
+
+
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
-               args.load_checkpoint, args.finetune, dataset)
+               args.load_checkpoint, args.finetune, dataset, args.conditioning)
 
 if __name__ == '__main__':
     main()
