@@ -91,7 +91,7 @@ def get_sequence_lengths(curr_unrolling, sequence_unroll_lengths, unroll_length,
     
     return torch.tensor(sequence_lengths, dtype=torch.long, device=device)
 
-def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_condition, do_train, curr_train_epoch=0):
+def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_condition, do_train, curr_step=0):
     """train or eval the placement models with the specified parameters on the given batch"""
     if do_train:
         clstm.train()
@@ -205,7 +205,7 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_c
         all_targets.clear()
         all_scores.clear()
 
-        writer.add_pr_curve('placement_pr_curve', targets, scores, curr_train_epoch)
+        writer.add_pr_curve('placement_pr_curve', targets, scores, curr_step)
 
     return total_loss / num_unrollings, total_accuracy / num_unrollings, clstm_hiddens_padded
 
@@ -412,11 +412,13 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                 if i + 1 == start_epoch_batch:
                     start_epoch_batch = 0
                 continue
+            
+            step = epoch * len(train_iter) + i
 
             with torch.set_grad_enabled(train_clstm):
                 placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
                     placement_optim, PLACEMENT_CRITERION, batch, device, writer, do_condition,
-                    do_train=train_clstm, curr_train_epoch=epoch)
+                    do_train=train_clstm, curr_step=step)
 
             with torch.set_grad_enabled(train_srnn):
                 selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
@@ -425,7 +427,6 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
             epoch_p_loss += placement_loss
             epoch_s_loss += selection_loss
 
-            step = epoch * len(train_iter) + i
             writer.add_scalar('loss/train_placement', placement_loss, step)
             writer.add_scalar('accuracy/train_placement', placement_acc, step)
             writer.add_scalar('loss/train_selection', selection_loss, step)
