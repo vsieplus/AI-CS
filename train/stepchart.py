@@ -190,7 +190,6 @@ class StepchartDataset(Dataset):
 
 		steps_per_second = [chart.steps_per_second for chart in charts]
 		self.avg_steps_per_second = sum(steps_per_second) / len(steps_per_second)
-		self.avg_steps_per_second = 0
 
 	# filter charts to include in the dataset; store path to json + chart index num.
 	def filter_fps(self, json_fps):
