@@ -12,7 +12,8 @@ from tqdm import trange
 
 import sys
 sys.path.append(os.path.join('..', 'train'))
-from hyper import N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES
+from hyper import (N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES
+                   SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE)
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer import ArrowTransformer
 from extract_audio_feats import extract_audio_feats
@@ -198,7 +199,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
 
     print(f'Saved to {out_dir}')
 
-def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, 
+def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, thresholds,
                    n_step_features, special_tokens, conditioned, sampling, k, p, b, device=torch.device('cpu')):
     print('Generating chart - this may take a bit...')
 
@@ -206,7 +207,7 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
      peaks,
      placement_hiddens,
      sample_rate) = generate_placements(placement_model, audio_file, chart_type,
-                                        chart_level, n_step_features, device)
+                                        chart_level, thresholds, n_step_features, device)
 
     if not conditioned:
         placement_hiddens = None
@@ -216,7 +217,7 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
 
     return chart_data, peaks
         
-def generate_placements(placement_model, audio_file, chart_type, chart_level, 
+def generate_placements(placement_model, audio_file, chart_type, chart_level, thresholds, 
                         n_step_features, device=torch.device('cpu')):
     placement_model.eval()
 
@@ -246,7 +247,7 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level,
         logits, placement_hiddens, _ = placement_model(audio_feats, chart_feats, states, audio_length)
 
         # placement predictions - [batch=1, n_audio_frames] - 1 if a placement, 0 if empty
-        placements, probs = predict_placements(logits, [chart_level], audio_length, get_probs=True)
+        placements, probs = predict_placements(logits, [chart_level], audio_length, get_probs=True, thresholds=thresholds)
 
         placements = placements.squeeze(0)
         probs = probs.squeeze(0).tolist()
@@ -497,13 +498,16 @@ def get_gen_config(model_summary, model_dir, device=torch.device('cpu')):
     elif model_summary['type'] == 'transformer':
         pass
 
-    if os.path.isfile(os.path.join(model_dir, 'special_tokens.json')):
-        with open(os.path.join(model_dir, 'special_tokens.json'), 'r') as f:
+    if os.path.isfile(os.path.join(model_dir, SPECIAL_TOKENS_SAVE)):
+        with open(os.path.join(model_dir, SPECIAL_TOKENS_SAVE), 'r') as f:
             special_tokens = json.loads(f.read())
     else:
         special_tokens = None
-        
-    return placement_model, selection_model, special_tokens
+
+    with open(os.path.join(model_dir, THRESHOLDS_SAVE), 'r') as f:
+        placement_thresholds = json.loads(f.read())
+   
+    return placement_model, selection_model, special_tokens, placement_thresholds
 
 def main():
     args = parse_args()
@@ -511,10 +515,10 @@ def main():
     device = torch.device('cpu')
 
     print('Loading models....')
-    with open(os.path.join(args.model_dir, 'summary.json'), 'r') as f:
+    with open(os.path.join(args.model_dir, SUMMARY_SAVE), 'r') as f:
         model_summary = json.loads(f.read())
 
-    placement_model, selection_model, special_tokens = get_gen_config(model_summary, args.model_dir, device)
+    placement_model, selection_model, special_tokens, thresholds = get_gen_config(model_summary, args.model_dir, device)
     conditioned = model_summary['conditioning']
 
     print(f'Generating a {model_summary["chart_type"].split("-")[-1]} {args.level} chart for {args.song_name}')
@@ -522,8 +526,8 @@ def main():
 
     # a list of pairs of (absolute time (s), step [ucs str format])
     chart_data, _ = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
-                                   args.level, model_summary['selection_input_size'], special_tokens, conditioned,
-                                   args.sampling, args.k, args.p, args.b, device)
+                                   args.level, thresholds, model_summary['selection_input_size'],
+                                   special_tokens, conditioned, args.sampling, args.k, args.p, args.b, device)
 
     if chart_data:
         # convert indices -> chart output format + save to file

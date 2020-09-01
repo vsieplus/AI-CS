@@ -488,9 +488,15 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                                                          PLACEMENT_CRITERION, SELECTION_CRITERION,
                                                          device, writer, -1, do_condition)
 
+    # optimize placement thresholds which give highest F2 scores on the test set
+    thresholds = optimize_placement_thresholds(placement_clstm, test_iter, PLACEMENT_CRITERION, device)
+
+    with open(os.path.join(save_dir, THRESHOLDS_SAVE), 'w') as f:
+        f.write(json.dumps(thresholds, indent=2))
+
     # save training summary stats to json file
     # load initial summary
-    with open(os.path.join(save_dir, 'summary.json'), 'r') as f:
+    with open(os.path.join(save_dir, SUMMARY_SAVE), 'r') as f:
         summary_json = json.loads(f.read())
     summary_json = {
         **summary_json,
@@ -503,7 +509,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
     summary_json = log_training_stats(writer, dataset, summary_json)
 
-    with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
+    with open(os.path.join(save_dir, SUMMARY_SAVE), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
 
 def log_training_stats(writer, dataset, summary_json):
@@ -577,7 +583,7 @@ def main():
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
     if args.fine_tune:
-        prev_special_tokens_path = os.path.join(args.load_checkpoint, 'special_tokens.json')
+        prev_special_tokens_path = os.path.join(args.load_checkpoint, SPECIAL_TOKENS_SAVE)
         if os.path.isfile(prev_special_tokens_path):
             with open(prev_speical_tokens_path, 'r') as f:
                 orig_special_tokens = json.loads(f.read())
@@ -611,12 +617,12 @@ def main():
     summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
                     'test_examples': len(test_data), 'conditioning': args.conditioning }
     summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
-    with open(os.path.join(args.save_dir, 'summary.json'), 'w') as f:
+    with open(os.path.join(args.save_dir, SUMMARY_SAVE), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
 
     # save special tokens for dataset vocabulary if needed
     if dataset.special_tokens:
-        with open(os.path.join(args.save_dir, 'special_tokens.json'), 'w') as f:
+        with open(os.path.join(args.save_dir, SPECIAL_TOKENS_SAVE), 'w') as f:
             f.write(json.dumps(dataset.special_tokens, indent=2))
 
     if args.fine_tune:

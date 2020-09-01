@@ -34,17 +34,10 @@ PLACEMENT_UNROLLING_LEN = 100
 
 # Thresholds for peak picking
 MIN_THRESHOLD = 0.10
-MAX_THRESHOLD = 0.25
+MAX_THRESHOLD = 0.30
 MAX_CHARTLEVEL = 28
 
-# TODO (experiments)
-#PLACEMENT_THRESHOLDS = {
-#    1 : .10
-#    2 : .11
-#    3 : 
-#    4 :
-#}
-
+# only used as starting default (will be optimized on test set after training for each model)
 PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
 						for level in range(1, MAX_CHARTLEVEL + 1)]
 
@@ -89,3 +82,7 @@ MAX_ACTIVE_ARROWS = {
 CHECKPOINT_SAVE = 'checkpoint.tar'
 CLSTM_SAVE = 'clstm.bin'
 SRNN_SAVE = 'srnn.bin'
+
+SUMMARY_SAVE = 'summary.json'
+SPECIAL_TOKENS_SAVE = 'special_tokens.json'
+THRESHOLDS_SAVE = 'placement_thresholds.json'

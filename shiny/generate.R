@@ -90,7 +90,7 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
                           'placement_input_size', 'hidden_size', 'selection_lstm_layers',
                           'selection_input_size', 'vocab_size')
   } else {
-    # TODO
+    # TODO (transformer)
   }
 
   sapply(modelIntFeatures, function(s) {
@@ -106,6 +106,7 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   placementModel = genConfig[[1]]
   selectionModel = genConfig[[2]]
   specialTokens = genConfig[[3]]
+  thresholds = genConfig[[4]]
   
   chartType = modelSummary[['chart_type']]
   inputSize = as.integer(modelSummary[['selection_input_size']])
@@ -117,7 +118,7 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   chartData[['threshold']] <- hyper$PLACEMENT_THRESHOLDS[as.integer(level - 1)]
 
   chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
-                                                  as.integer(level), inputSize)
+                                                  as.integer(level), thresholds, inputSize)
 
   placements = chartPlacements[[1]]
   chartData[['peaks']] = chartPlacements[[2]]
