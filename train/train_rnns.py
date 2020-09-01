@@ -6,6 +6,7 @@ import datetime
 import gc
 import json
 import os
+import shutil
 from pathlib import Path
 
 import torch
@@ -33,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--save_dir', type=str, default=None, 
                         help="""Specify custom output directory to save models to. If blank, will save in ./models/dataset_name/""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
-    parser.add_argument('--finetune', action='store_true', default=False, help=('Use this option to (re)train a model that'
+    parser.add_argument('--fine_tune', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
     parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
     parser.add_argument('--conditioning', action='store_true', default=False, help='train a model with placement model conditioning')
@@ -357,19 +358,17 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
             total_s_loss / len(data_iter), total_s_acc / len(data_iter))
 
 # full training process from placement -> selection
-def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, finetune, 
+def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, fine_tune, 
                dataset, do_condition, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=1):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
                                      PLACEMENT_INPUT_SIZE, HIDDEN_SIZE).to(device)
     placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
-    #placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR, momentum=0.9)
 
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
                                  dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
     selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
-    #selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR)
     
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
@@ -381,7 +380,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M')
   
     if load_checkpoint:
-        checkpoint = load_save(load_checkpoint, finetune, placement_clstm, selection_rnn, device)
+        checkpoint = load_save(load_checkpoint, fine_tune, placement_clstm, selection_rnn, device)
         if checkpoint:
             (start_epoch, start_epoch_batch, best_placement_valid_loss, 
              best_selection_valid_loss, train_clstm, train_srnn, sub_logdir) = checkpoint
@@ -579,7 +578,7 @@ def main():
     dataset = StepchartDataset(args.dataset_path, args.load_to_memory)
 
     if not args.save_dir:
-        if args.load_checkpoint and not arg.finetune:
+        if args.load_checkpoint and not args.fine_tune:
             args.save_dir = args.load_checkpoint
         else:	
             # models/{single/double}/dataset_name/...
@@ -598,7 +597,7 @@ def main():
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')
     print(datasets_size_str)
 
-    # save initial summary file
+    # save initial summary file; if finetuning, copy the old files in addition
     summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
                     'test_examples': len(test_data), 'conditioning': args.conditioning }
     summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
@@ -609,6 +608,13 @@ def main():
     if dataset.special_tokens:
         with open(os.path.join(args.save_dir, 'special_tokens.json'), 'w') as f:
             f.write(json.dumps(dataset.special_tokens, indent=2))
+
+    if args.fine_tune:
+        orig_model_files = [orig_file in os.listdir(args.load_checkpoint)]
+
+        for orig_file in orig_model_files:
+            if orig_file.split('.')[-1] == 'json':
+                shutil.copy(os.path.join(args.load_checkpoint, orig_file), os.path.join(args.save_dir, orig_file))
 
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,

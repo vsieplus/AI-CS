@@ -79,7 +79,7 @@ def save_model(model, save_dir, model_filename):
 
     torch.save(model.state_dict(), out_path)
 
-def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
+def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
     print(f'Loading checkpoint from {save_dir}...')
 
     clstm_path = os.path.join(save_dir, CLSTM_SAVE)
@@ -97,9 +97,9 @@ def load_save(save_dir, retrain, placement_clstm, selection_rnn, device):
 
     checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
 
-    # only restore epoch/best loss values when not retraining    
-    # (i.e. give option to retrain some more on an already trained model)       
-    if not retrain:
+    # only restore epoch/best loss values when not fine_tuneing    
+    # (i.e. give option to fine_tune some more on an already trained model)       
+    if not fine_tune:
         start_epoch = checkpoint['epoch']
         start_epoch_batch = checkpoint['curr_epoch_batch']
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
