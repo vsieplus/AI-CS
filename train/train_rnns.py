@@ -507,18 +507,19 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         f.write(json.dumps(summary_json, indent=2))
 
 def log_training_stats(writer, dataset, summary_json):
-    summary_json = {
-        **summary_json,
-        'total_charts': len(dataset),
-        'unique_charts': dataset.n_unique_charts,
-        'unique_songs': dataset.n_unique_songs,
-        'audio_hours': dataset.n_audio_hours,
-        'total_steps': dataset.n_steps,
-        'min_level': dataset.min_level,
-        'max_level': dataset.max_level,
-        'avg_steps_per_second': dataset.avg_steps_per_second,
-        'vocab_size': dataset.vocab_size,
-    }
+    if dataset.computed_stats:
+        summary_json = {
+            **summary_json,
+            'total_charts': len(dataset),
+            'unique_charts': dataset.n_unique_charts,
+            'unique_songs': dataset.n_unique_songs,
+            'audio_hours': dataset.n_audio_hours,
+            'total_steps': dataset.n_steps,
+            'min_level': dataset.min_level,
+            'max_level': dataset.max_level,
+            'avg_steps_per_second': dataset.avg_steps_per_second,
+            'vocab_size': dataset.vocab_size,
+        }
 
     hparam_dict = {
         'placement_lr': PLACEMENT_LR,
@@ -575,7 +576,16 @@ def main():
 
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
-    dataset = StepchartDataset(args.dataset_path, args.load_to_memory)
+    if args.fine_tune:
+        prev_special_tokens_path = os.path.join(args.load_checkpoint, 'special_tokens.json')
+        if os.path.isfile(prev_special_tokens_path):
+            with open(prev_speical_tokens_path, 'r') as f:
+                orig_special_tokens = json.loads(f.read())
+        else:
+            orig_special_tokens = None
+
+    first_dataset_load = not args.load_checkpoint or (args.load_checkpoint and args.fine_tune):
+    dataset = StepchartDataset(args.dataset_path, args.load_to_memory, first_dataset_load, orig_special_tokens)
 
     if not args.save_dir:
         if args.load_checkpoint and not args.fine_tune:
@@ -613,8 +623,10 @@ def main():
         orig_model_files = [orig_file in os.listdir(args.load_checkpoint)]
 
         for orig_file in orig_model_files:
-            if orig_file.split('.')[-1] == 'json':
-                shutil.copy(os.path.join(args.load_checkpoint, orig_file), os.path.join(args.save_dir, orig_file))
+            orig_filename, orig_ext = orig_file.split('.')
+            if orig_ext == 'json':
+                shutil.copy(os.path.join(args.load_checkpoint, orig_file),
+                            os.path.join(args.save_dir, orig_filename + '-original.' + orig_ext))
 
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
