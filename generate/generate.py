@@ -8,6 +8,7 @@ import re
 import shutil
 
 import torch
+from joblib import Memory
 from tqdm import trange
 
 import sys
@@ -20,6 +21,9 @@ from extract_audio_feats import extract_audio_feats
 from step_tokenize import get_state_indices, step_features_to_str, step_index_to_features, UCS_SSC_DICT
 from predict_placements import predict_placements
 import train_util
+
+memory = Memory('.gen_cache', verbose=0, compress=True)
+get_state_indices = memory.cache(get_state_indices)
 
 # default 4 beats per measure
 BEATS_PER_MEASURE = 4

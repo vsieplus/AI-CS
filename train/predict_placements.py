@@ -49,7 +49,7 @@ def get_optimal_threshold(placement_model, test_iter, criterion, device):
 
         # find threshold which maximizes the f2 score
         with torch.no_grad():
-            # stop optimizing when haven't improved in 5 changes
+            # stop optimizing when haven't improved in the last 5 changes or F2 score cannot go higher
             while last_improved < 5 and f2_score < 1:
                 for batch in testt_iter:
                     pass
