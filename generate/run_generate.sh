@@ -2,11 +2,12 @@
 
 python generate.py \
     --model_dir '../train/models/single/prime12_all_single' \
-    --audio_file 'audio/bungee/bungee.mp3' \
-    --out_dir 'charts/bungee/S15' \
-    --level 15 \
+    --audio_file 'audio/errorcode/errorcode0.mp3' \
+    --out_dir 'charts/errorcode/s18' \
+    --level 18 \
+    --display_bpm 200 \
     --chart_format 'ucs' \
     --song_name 'bungee' \
     --song_artist 'OMG' \
-    --sampling 'top-p' \
+    --sampling 'top-k' \
     ${@:1}

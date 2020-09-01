@@ -84,7 +84,7 @@ server <- function(input, output, session) {
       }
     
       generate$save_chart(chartData()[['notes']], chartData()[['chartType']], chartData()[['level']],
-                          saveFormat, chartData()[['title']], chartData()[['artist']],
+                          saveFormat, chartData()[['bpm']], chartData()[['title']], chartData()[['artist']],
                           chartData()[['audioPath']], chartData()[['name']], '.')
 
       zip(file, list.files('.', pattern = '(\\.ucs|\\.mp3|\\.ssc)'))  

@@ -25,7 +25,7 @@ getModelSummary <- function(modelPath, as_str) {
 
       if(as_str) {
         paste(sep = '<br/>', sprintf('Model description: %s', modelDescriptions[[modelSummary[['type']]]]),
-              sprintf('Vocabulary size: %0.f', modelSummary[['vocab_size']]),
+              sprintf('Vocabulary size: %s', format(modelSummary[['vocab_size']], big.mark = ',', trim = T)),
               sprintf('Epochs trained: %0.f', modelSummary[['epochs_trained']]),
               sprintf('Batch size: %0.f', modelSummary[['batch_size']]),
               sprintf('Hidden size: %0.f', modelSummary[['hidden_size']]),
@@ -36,10 +36,10 @@ getModelSummary <- function(modelPath, as_str) {
               sprintf('Total audio hours: %0.4f<br/>', modelSummary[['audio_hours']]),
               sprintf('Chart type: %s', modelSummary[['chart_type']]),
               sprintf('Chart permutations: %s', cat(modelSummary[['permutations']])),
-              sprintf('Total unique charts: %0.f', modelSummary[['unique_charts']]),
+              sprintf('Total unique charts: %s', format(modelSummary[['unique_charts']], big.mark = ',', trim = T)),
               sprintf('Minimum chart level: %0.f', modelSummary[['min_level']]),
               sprintf('Maximum chart level: %0.f', modelSummary[['max_level']]),
-              sprintf('Total chart steps: %0.f', modelSummary[['total_steps']]),
+              sprintf('Total chart steps: %s', format(modelSummary[['total_steps']], big.mark = ',', trim = T)),
               sprintf('Avg. steps per second: %0.4f', modelSummary[['avg_steps_per_second']]))
       } else {
         modelSummary

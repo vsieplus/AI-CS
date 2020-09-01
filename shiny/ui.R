@@ -8,7 +8,7 @@ source('util.R', local = TRUE)
 
 CHART_TYPES <- list(Single = 'single', Double = 'double')
 CHART_FORMATS <- c('ssc', 'ucs')
-SAMPLING_CHOICES <- c('top-p', 'top-k', 'beam-search', 'greedy', 'multinom')
+SAMPLING_CHOICES <- c('top-k', 'top-p', 'beam-search', 'greedy', 'multinom')
 
 side_by_side <- function(x, second = FALSE, padding = '20px') {
   if(second) {
@@ -43,7 +43,7 @@ ui <- navbarPage(
         textInput('song_title', 'Song Title: '),
         textInput('artist', 'Artist: '),
       
-        side_by_side(numericInput('bpm', 'BPM (optional):', min = 0, value = 120, width = '120px')),
+        side_by_side(numericInput('bpm', 'BPM (optional):', min = 0, value = 150, width = '120px')),
         side_by_side(numericInput('topk_k', 'k', value = 20, min = 0, max = 1024, width = '120px'), second = TRUE),
 
         side_by_side(radioButtons('sample_strat', 'Decoding strategy', choices = SAMPLING_CHOICES)),

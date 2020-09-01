@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 
 import torch
@@ -19,15 +20,9 @@ from step_tokenize import get_state_indices, step_features_to_str, step_index_to
 from predict_placements import predict_placements
 import train_util
 
-BEATS_PER_MEASURE = 1
-SPLITS_PER_BEAT = 10
-SPLIT_SUBDIV = SPLITS_PER_BEAT * BEATS_PER_MEASURE   # splits per measure
-
-# SPLITS_PER_BEAT = 1 / ((FAKE_BPM / 60 ) / CHART_FRAME_RATE)
-# force 10 ms splits; Ex) 140 bpm /60-> 2.3333 bps /100-> .02333 'beats' per split 
-# 10 spb > ~600bpm - only affects default scroll speed
-# TODO if bpm provided, convert/approximate subdivisions
-FAKE_BPM = 60 * (CHART_FRAME_RATE / SPLITS_PER_BEAT)
+# default 4 beats per measure
+BEATS_PER_MEASURE = 4
+MIN_SPLITS_PER_BEAT = 4
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -38,16 +33,84 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--level', type=int, default=14, help='level of the chart to generate')
     parser.add_argument('--song_name', type=str, help='song name')
     parser.add_argument('--song_artist', type=str, help='song artist')
+    parser.add_argument('--display_bpm', type=float, default=125, help='determine scroll speed/display')
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=10, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.1, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
-    parser.add_argument('-b', type=int, default=10, help='Beam size for beam search')
+    parser.add_argument('-k', type=int, default=20, help='Sample steps from the top k candidates if using top-k')
+    parser.add_argument('-p', type=float, default=0.05, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-b', type=int, default=25, help='Beam size for beam search')
+
 
     return parser.parse_args()
 
-def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, artist, 
-               audio_file, model_name, out_dir):
+def convert_splits_to_bpm(splits, bpm, blank_note):
+    """
+    Helper function to convert 10ms splits -> the given bpm as best as possible
+        splits: list of [time, notes] representing all 10ms frames
+    """
+    #   bpm     1min       1s        10ms                                      bpm
+    #  ----- * ------ * -------- * --------- -> beats per (10 ms) split =  ------------
+    #   1min    60s      1000ms     1 split                                (60) * (100)
+    # chart frame rate = 1/(^^^^^^^^^^^^^) = 100        
+    # or alternatively, the number of 10ms splits ber beat = 6000 / bpm
+
+    # Then we can divide every (6000/bpm) chunk of chart frames into beats, and
+    # make subdivisions as necessary depending on the density
+
+    # # of 10ms splits per beat; round to the nearest int -> may cause some time errors esp. for lower bpms
+    # we want to fit this many frames into a single beat
+    splits_per_beat = round((CHART_FRAME_RATE * 60) / bpm)  
+    measure_length = splits_per_beat * BEATS_PER_MEASURE    # splits per measure
+
+    if len(splits) % measure_length != 0:
+        splits += [blank_note] * (measure_length - (len(splits) % measure_length))
+
+    num_measures = len(splits) // measure_length
+
+    # construct different chart sections (which may have different split divisions
+    # depending on chart density - use the minimum number >= 4 to avoid long hold counts)
+    # store pairs of [updated beatsplit, [notes for this section of splits]]
+    chart_sections = []
+
+    curr_beatsplit = 0
+
+    for measure in range(num_measures):
+        measure_start = measure * measure_length
+        for beat in range(BEATS_PER_MEASURE):
+            beat_start = measure_start + (beat * splits_per_beat)
+            curr_splits = splits[beat_start:beat_start + splits_per_beat]
+
+            new_beatsplit = MIN_SPLITS_PER_BEAT
+            split_interval = splits_per_beat // new_beatsplit
+
+            # check if any splits have placements that don't line up with the
+            # min splits per beat (4) - increase as necessary
+            for k, note in enumerate(curr_splits):
+                if re.search('[MXW]', note): # ignore steps with just holds
+                    # in the worst case, we need to keep all the original splits
+                    while k % split_interval != 0 and new_beatsplit < splits_per_beat:
+                        new_beatsplit += 1
+                        split_interval = math.ceil(splits_per_beat / new_beatsplit)
+
+            # if different number of splits than before, start a new chart section
+            if new_beatsplit  != curr_beatsplit:
+                curr_beatsplit = new_beatsplit
+                chart_sections.append([curr_beatsplit, []])
+
+            for k, note in enumerate(curr_splits):
+                if k % split_interval == 0:
+                    chart_sections[-1][-1].append(note)
+
+                    # at this point the absolute time should not have changed by much, i.e.
+                    old_time = (beat_start + k) / CHART_FRAME_RATE
+                    new_time = ((measure * BEATS_PER_MEASURE + beat + ((k + 1) / splits_per_beat)) / bpm) * 60
+                    if abs(round(old_time, 2) - round(new_time, 2)) > 0.04:
+                        print(f'Warning, conversion difference > 40ms; {old_time} !~ {new_time}')
+
+    return chart_sections 
+
+def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
+               song_name, artist, audio_file, model_name, out_dir):
     if not os.path.isdir(out_dir):
         print(f'Creating output directory {out_dir}')
         os.makedirs(out_dir)
@@ -58,10 +121,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
     # convert each time to a beat/split
     # adapted from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py (~221)
     ten_ms_frames_to_steps = {int(round(time * CHART_FRAME_RATE)) : step for time, step in chart_data}
-    max_num_splits = max(ten_ms_frames_to_steps.keys())
-    if max_num_splits % SPLIT_SUBDIV != 0:
-        max_num_splits += SPLIT_SUBDIV - (max_num_splits % SPLIT_SUBDIV)
-        
+            
     if chart_type == 'pump-single':
         blank_note = '.' * 5
     elif chart_type == 'pump-double':
@@ -69,7 +129,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
 
     splits = []
     curr_holds = set()
-    for i in range(max_num_splits):
+    for i in range(max(ten_ms_frames_to_steps.keys())):
         curr_note = ten_ms_frames_to_steps.get(i, blank_note)
 
         filtered_note = ''
@@ -81,32 +141,38 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, song_name, art
             elif step == 'M':
                 curr_holds.add(j)
             elif step == 'W':
-                curr_holds.remove(j)
+                curr_holds.discard(j)
             
             filtered_note += step
             
         splits.append(filtered_note)
 
+    # convert splits to the given bpm; return pairs of updated beatsplits/chart notes
+    chart_sections = convert_splits_to_bpm(splits, display_bpm, blank_note)
+    #chart_sections = [[10, splits]]
+
     charts_to_save = []
 
     if chart_format == 'ucs' or chart_format == 'both':
         # 100ms for delay
-        chart_attrs = { 'Format': 1, 'Mode': 'Single' if chart_type == 'pump-single' else 'Double',
-                        'BPM': FAKE_BPM, 'Delay': 0, 'Beat': BEATS_PER_MEASURE, 'Split': SPLITS_PER_BEAT }
+        chart_attrs = { 'Format': 1, 'Mode': 'Single' if chart_type == 'pump-single' else 'Double'}
 
         chart_txt = ''
         for key, val in chart_attrs.items():
             chart_txt += f':{key}={val}\n'
         
-        chart_txt += '\n'.join(splits)
-        chart_fp = audio_filename + '.ucs'
+        for beatsplit, notes in chart_sections:
+            if notes:
+                chart_txt += f':BPM={display_bpm}\n:Delay=0\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
+                chart_txt += '\n'.join(notes) + '\n'
 
+        chart_fp = audio_filename + '.ucs'
         charts_to_save.append((chart_fp, chart_txt))
 
     # convert steps from ucs -> ssc format + save if needed ######## TODO fix output ########
     if chart_format == 'ssc' or chart_format == 'both':
         chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 
-            'MUSIC': os.path.join(out_dir, audio_filename), 'OFFSET': 0.0, 'BPMS': f'0.0={FAKE_BPM}', 
+            'MUSIC': os.path.join(out_dir, audio_filename), 'OFFSET': 0.0, 'BPMS': f'0.0={display_bpm}', 
             'NOTEDATA': '', 'CHARTNAME': '', 'STEPSTYPE': chart_type, 'METER': str(chart_level),
             'CREDIT': model_name, 'STOPS': '', 'DELAYS': ''
         }
@@ -199,6 +265,12 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
     # store pairs of time (s) and step vocab indices
     chart_data = []
 
+    num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
+
+    # filtering indices for step selection (see filter_step_dist(..))
+    hold_filters = [get_state_indices(j, [0, 1], chart_type, special_tokens) for j in range(num_arrows)]
+    empty_filters = [get_state_indices(j, [2, 3], chart_type, special_tokens) for j in range(num_arrows)]
+
     # Start generating the sequence of steps
     step_length = torch.ones(1, dtype=torch.long, device=device)
     hold_indices = [set() for _ in range(b)] if sampling == 'beam-search' else set()
@@ -227,35 +299,13 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
                 if i == 0:
                     beams.append([[0], 0.0, hidden.clone(), cell.clone()])
 
-                # store expanded seqs, scores, + original beam idx
-                candidates, curr_states = [], []
-                for z, (seq, beam_score, hidden, cell) in enumerate(beams):
-                    curr_token = step_index_to_features(seq[-1], chart_type, special_tokens, device)
-                    curr_token = curr_token.unsqueeze(0).unsqueeze(0).float()
-
-                    logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
-                    curr_states.append((hidden, cell))    
-
-                    candidates.extend(expand_beam(logits.squeeze(), seq, beam_score, z, hold_indices, step_indices,
-                        chart_type, special_tokens))
-
-                # sort by beam score (accumulated (abs) log probs) -> keep lowest b candidates
-                candidates = sorted(candidates, key=lambda x:x[1])[:b]
+                candidates, curr_states = get_beam_candidates(selection_model, beams, b, placement_hidden, step_length, 
+                                                              num_arrows, hold_indices, step_indices, chart_type, 
+                                                              special_tokens, hold_filters, empty_filters, device)
                 
                 # if the last element in the sequence, keep the one with the best score
                 if i == num_placements - 1:
-                    seq, _, _ = candidates[0]
-                    hold_indices = set()
-                    step_indices = set()
-                    for m in range(1, len(seq)):
-                        token_feats = step_index_to_features(seq[m], chart_type, special_tokens, device)
-                        token_str = step_features_to_str(token_feats)
-                        token_str, new_holds = filter_steps(token_str, hold_indices, step_indices)
-
-                        if m > 1:
-                            replace_steps(new_holds, chart_data, m - 1)
-                        
-                        chart_data.append([placement_times[m - 1], token_str])
+                   save_best_beam(candidates[0], placement_times, chart_data, chart_type, special_tokens, device)
                 else:
                     for seq, score, beam_idx in candidates:
                         curr_hidden, curr_cell = curr_states[beam_idx]
@@ -264,7 +314,7 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
                 curr_token = next_token_feats.unsqueeze(0).unsqueeze(0).float() if i > 0 else start_token
                 logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
                 next_token_idx = predict_step(logits.squeeze(), sampling, k, p, hold_indices, step_indices, 
-                                              chart_type, special_tokens)
+                                              num_arrows, hold_filters, empty_filters)
             
                 # convert token index -> feature tensor -> str [ucs] representation
                 next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
@@ -307,7 +357,7 @@ def filter_steps(token_str, hold_indices, step_indices):
                 step_indices.remove(j)
             else:
                 # should have  j in hold_indices
-                hold_indices.remove(j)
+                hold_indices.discard(j)
         elif token == 'H' and j not in hold_indices:
             hold_indices.add(j)
             #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' (hold start)
@@ -323,10 +373,34 @@ def filter_steps(token_str, hold_indices, step_indices):
 
     return new_token_str, new_hold_indices
 
-def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, step_indices, chart_type, special_tokens):
+def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, step_length, 
+                        num_arrows, hold_indices, step_indices, chart_type, special_tokens, 
+                        hold_filters, empty_filters, device):
+    # store expanded seqs, scores, + original beam idx
+    candidates, curr_states = [], []
+    for z, (seq, beam_score, hidden, cell) in enumerate(beams):
+        curr_token = step_index_to_features(seq[-1], chart_type, special_tokens, device)
+        curr_token = curr_token.unsqueeze(0).unsqueeze(0).float()
+
+        logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
+        curr_states.append((hidden, cell))    
+
+        curr_candidates = expand_beam(logits.squeeze(), seq, beam_score, z, hold_indices, step_indices,
+                                      num_arrows, hold_filters, empty_filters)
+
+        candidates.extend(curr_candidates)
+
+    # sort by beam score (accumulated (abs) log probs) -> keep lowest b candidates
+    candidates = sorted(candidates, key=lambda x:x[1])[:beam_width]
+
+    return candidates, curr_states
+
+def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, step_indices,
+                num_arrows, hold_filters, empty_filters):
     # logits: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    dist = filter_step_dist(dist, hold_indices[beam_idx], step_indices[beam_idx], chart_type, special_tokens)
+    dist = filter_step_dist(dist, hold_indices[beam_idx], step_indices[beam_idx], 
+                            num_arrows, hold_filters, empty_filters)
     expanded = []
     for j in range(logits.size(0)):
         new_seq = sequence + [j]
@@ -337,32 +411,44 @@ def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, step_indic
 
     return expanded
 
-def filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens):
+def save_best_beam(best, placement_times, chart_data, chart_type, special_tokens, device):
+    seq, _, _ = best
+    hold_indices = set()
+    step_indices = set()
+    for m in range(1, len(seq)):
+        token_feats = step_index_to_features(seq[m], chart_type, special_tokens, device)
+        token_str = step_features_to_str(token_feats)
+        token_str, new_holds = filter_steps(token_str, hold_indices, step_indices)
+
+        if m > 1:
+            replace_steps(new_holds, chart_data, m - 1)
+        
+        chart_data.append([placement_times[m - 1], token_str])
+
+def filter_step_dist(dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters):
     """Filter step distributions to exclude impossible step sequences"""
     # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
     # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
     # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
-    for j in range(SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES):
+    for j in range(num_arrows):
         # filter step combinations where the jth step is empty or a step (states = 0, 1)
         if j in hold_indices:
-            filtered_indices = get_state_indices(j, [0, 1], chart_type, special_tokens)
-            dist[filtered_indices] = 0.0
+            dist[hold_filters[j]] = 0.0
 
         # if arrow j neither preceded by 'H' or 'X', filter out holds (state = 2) and releases (state = 3)
         elif j not in step_indices:
-            filtered_indices = get_state_indices(j, [2, 3], chart_type, special_tokens)
-            dist[filtered_indices] = 0.0
+            dist[empty_filters[j]] = 0.0
 
     return dist
 
-def predict_step(logits, sampling, k, p, hold_indices, step_indices, chart_type, special_tokens):
+def predict_step(logits, sampling, k, p, hold_indices, step_indices, num_arrows, hold_filters, empty_filters):
     """predict the next step given model logits and a sampling strategy"""
     # shape: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
+    dist = filter_step_dist(dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters)
     
     if sampling == 'top-k':
         # sample from top k probabilites + corresponding indices (sorted)    
-        dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
         probs, indices = torch.topk(dist, k=k, dim=-1)
         sample = torch.multinomial(torch.nn.functional.softmax(probs, dim=-1), num_samples=1)
 
@@ -383,16 +469,14 @@ def predict_step(logits, sampling, k, p, hold_indices, step_indices, chart_type,
         indices_to_remove = sorted_indices[sorted_indices_to_remove]
         logits[indices_to_remove] = float('-inf')
 
-        filtered_dist = filter_step_dist(torch.nn.functional.softmax(logits, dim=-1), hold_indices,
-                                         step_indices, chart_type, special_tokens)
+        filtered_dist = torch.nn.functional.softmax(logits, dim=-1)
+        filtered_dist = filter_step_dist(filtered_dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters)
         pred_idx = torch.multinomial(filtered_dist, num_samples=1)              
     elif sampling == 'greedy':
         # take the most likely token
-        dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
         pred_idx = torch.topk(dist, k=1, dim=-1)[1][0]
     elif sampling == 'multinom':
         # sample from the bare distribution
-        dist = filter_step_dist(dist, hold_indices, step_indices, chart_type, special_tokens)
         pred_idx = torch.multinomial(dist, num_samples=1)
 
     return pred_idx
@@ -441,9 +525,11 @@ def main():
                                    args.level, model_summary['selection_input_size'], special_tokens, conditioned,
                                    args.sampling, args.k, args.p, args.b, device)
 
-    # convert indices -> chart output format + save to file
-    save_chart(chart_data, model_summary['chart_type'], args.level, args.chart_format, args.song_name,
-               args.song_artist, args.audio_file, model_summary['name'], args.out_dir)
+    if chart_data:
+        # convert indices -> chart output format + save to file
+        save_chart(chart_data, model_summary['chart_type'], args.level, args.chart_format,
+                args.display_bpm, args.song_name, args.song_artist, args.audio_file,
+                model_summary['name'], args.out_dir)
 
 if __name__ == '__main__':
     main()
