@@ -613,17 +613,20 @@ def main():
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')
     print(datasets_size_str)
 
-    # save initial summary file; if finetuning, copy the old files in addition
+    # save initial summary files; if finetuning, copy the old files in addition
     summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
                     'test_examples': len(test_data), 'conditioning': args.conditioning }
     summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
     with open(os.path.join(args.save_dir, SUMMARY_SAVE), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
 
-    # save special tokens for dataset vocabulary if needed
+    # save special tokens for dataset vocabulary if needed + default thresholds
     if dataset.special_tokens:
         with open(os.path.join(args.save_dir, SPECIAL_TOKENS_SAVE), 'w') as f:
             f.write(json.dumps(dataset.special_tokens, indent=2))
+
+    with open(os.path.join(args.save_dir, THRESHOLDS_SAVE), 'w') as f:
+        f.write(json.dumps(PLACEMENT_THRESHOLDS))
 
     if args.fine_tune:
         orig_model_files = [orig_file in os.listdir(args.load_checkpoint)]
