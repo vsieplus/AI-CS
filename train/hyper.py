@@ -33,19 +33,12 @@ PLACEMENT_POOL_KERNEL = (1, 3)
 PLACEMENT_UNROLLING_LEN = 100
 
 # Thresholds for peak picking
-MIN_THRESHOLD = 0.15
-MAX_THRESHOLD = 0.45
+MIN_THRESHOLD = 0.10
+MAX_THRESHOLD = 0.30
 MAX_CHARTLEVEL = 28
 
-# TODO (experiments)
-#PLACEMENT_THRESHOLDS = {
-#    1 : .10
-#    2 : .11
-#    3 : 
-#    4 :
-#}
-
-PLACEMENT_THRESHOLDS = [MAX_THRESHOLD - ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
+# only used as starting default (will be optimized on test set after training for each model)
+PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
 						for level in range(1, MAX_CHARTLEVEL + 1)]
 
 # chart_feats + output of cnn -> last filter size * pooled audio feats -> 160
@@ -89,3 +82,7 @@ MAX_ACTIVE_ARROWS = {
 CHECKPOINT_SAVE = 'checkpoint.tar'
 CLSTM_SAVE = 'clstm.bin'
 SRNN_SAVE = 'srnn.bin'
+
+SUMMARY_SAVE = 'summary.json'
+SPECIAL_TOKENS_SAVE = 'special_tokens.json'
+THRESHOLDS_SAVE = 'placement_thresholds.json'

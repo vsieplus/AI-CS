@@ -118,7 +118,7 @@ def collate_charts(batch):
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
-	def __init__(self, dataset_json, load_to_memory):
+	def __init__(self, dataset_json, load_to_memory, first_dataset_load, special_tokens):
 		"""dataset_json: path to json file with dataset metadata"""
 		assert(os.path.isfile(dataset_json))
 		with open(dataset_json, 'r') as f:
@@ -139,14 +139,22 @@ class StepchartDataset(Dataset):
 
 		self.n_unique_songs = 0
 
-		self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type]
-		self.special_tokens = {} # track special tokens in this dataset (idx -> ucs step (str))
+        # track special tokens in this dataset (idx -> ucs step (str))
+        if special_tokens:
+            self.special_tokens = special_tokens
+            self.vocab_size = len(special_tokens) - 1
+        else:
+		    self.special_tokens = {}
+            self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type]
 
 		# store the file paths and chart_indices to load
 		self.chart_ids = self.filter_fps([os.path.join(DATA_DIR, fp) for fp in metadata['json_fps']])
 		self.print_summary()
-		self.compute_stats(load_to_memory)
+
 		self.load_to_memory = load_to_memory
+		if load_to_memory or first_dataset_load:
+			self.compute_stats(load_to_memory)
+            self.computed_stats = True
 
 	def __len__(self):
 		return len(self.chart_ids)

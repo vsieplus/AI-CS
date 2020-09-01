@@ -2,18 +2,10 @@
 
 import itertools
 import math
-import os
 
-from joblib import Memory
-from pathlib import Path
 import torch
 
 from hyper import NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES, MAX_ACTIVE_ARROWS
-
-ABS_PATH = str(Path(__file__).parent.absolute())
-CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
-
-memory = Memory(CACHE_DIR, verbose=0, compress=True)
 
 UCS_SSC_DICT = {
 	'.': '0',   # no step
@@ -227,8 +219,7 @@ def calc_arrangements(starting_index, num_indices, max_index):
 		return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
 					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
 
-@memory.cache
-def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
+def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens, vocab_size):
 	"""
 	return all the vocabulary indices for which the arrow at arrow_idx has any
 	of the given arrow_state(s)
@@ -257,11 +248,10 @@ def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
 				if special_token[arrow_idx] == state:
 					step_states.append(special_token)
 
-	# TODO make more efficient conversion from str -> index
 	step_tensors = sequence_to_tensor(step_states)
 	step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, special_tokens)
 
-	return step_indices
+	return filter(lambda x: x < vocab_size, step_indices)
 
 # helper functions to reduce search space of (doubles) active combintions
 def get_other_states(max_active, other_idxs):

@@ -1,13 +1,13 @@
-# predict step placements
+# predict step placements + threshold optimization
 
 from scipy.signal import argrelextrema
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hyper import PLACEMENT_THRESHOLDS
+from hyper import PLACEMENT_THRESHOLDS, MAX_CHARTLEVEL, MIN_THRESHOLD
 
-def predict_placements(logits, levels, lengths, get_probs=False):
+def predict_placements(logits, levels, lengths, get_probs=False, thresholds=None):
     """
     given a sequence of logits from a placement model, predict which positions have steps.
         input:  logits [batch, unroll_length, 2]
@@ -18,6 +18,8 @@ def predict_placements(logits, levels, lengths, get_probs=False):
     # compute probability dists. for each timestep [batch, unroll, 2]
     probs = F.softmax(logits, dim=-1)
 
+    thresholds_to_use = thresholds if thresholds else PLACEMENT_THRESHOLDS
+
     # [batch, unroll (lengths)]
     predictions = torch.zeros(logits.size(0), logits.size(1))
     for b in range(logits.size(0)):
@@ -26,9 +28,31 @@ def predict_placements(logits, levels, lengths, get_probs=False):
         maxima = argrelextrema(probs_smoothed, np.greater_equal, order=1)[0]
 
         for i in maxima:
-            predictions[b, i] = probs[b, i, 1] >= PLACEMENT_THRESHOLDS[levels[b] - 1]
+            predictions[b, i] = probs[b, i, 1] >= thresholds_to_use[levels[b] - 1]
 
     if get_probs:
       return predictions, probs[:, :, 1]
     else:
       return predictions
+
+def get_optimal_threshold(placement_model, test_iter, criterion, device):
+    placement_model.eval()
+
+    thresholds = {}
+
+    for level in range(MAX_CHARTLEVEL):
+        threshold = MIN_THRESHOLD 
+        thresholds[level] = threshold
+        f2_score = 0
+
+        last_improved = 0
+
+        # find threshold which maximizes the f2 score
+        with torch.no_grad():
+            # stop optimizing when haven't improved in the last 5 changes or F2 score cannot go higher
+            while last_improved < 5 and f2_score < 1:
+                for batch in testt_iter:
+                    pass
+
+    return thresholds
+
