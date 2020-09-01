@@ -590,7 +590,10 @@ def main():
             with open(prev_speical_tokens_path, 'r') as f:
                 orig_special_tokens = json.loads(f.read())
 
-    first_dataset_load = not args.load_checkpoint or (args.load_checkpoint and args.fine_tune)
+    # load the dataset first only if not loading from checkpoint, fine-tuning, or 
+    # if loading from checkpoint, the summary file doesn't exist
+    first_dataset_load = (not args.load_checkpoint or (args.load_checkpoint and args.fine_tune)
+                          or (args.load_checkpoint and not os.path.isfile(os.path.join(args.load_checkpoint, SUMMARY_SAVE))))
     print('Loading dataset to memory:', args.load_to_memory)
     print('Conditioning:', args.conditioning)
     print('Computing dataset stats [first load]:', first_dataset_load)
@@ -618,11 +621,12 @@ def main():
     print(datasets_size_str)
 
     # save initial summary files; if finetuning, copy the old files in addition
-    summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
-                    'test_examples': len(test_data), 'conditioning': args.conditioning }
-    summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
-    with open(os.path.join(args.save_dir, SUMMARY_SAVE), 'w') as f:
-        f.write(json.dumps(summary_json, indent=2))
+    if first_dataset_load:
+        summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
+                        'test_examples': len(test_data), 'conditioning': args.conditioning }
+        summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
+        with open(os.path.join(args.save_dir, SUMMARY_SAVE), 'w') as f:
+            f.write(json.dumps(summary_json, indent=2))
 
     # save special tokens for dataset vocabulary if needed + default thresholds
     if dataset.special_tokens:
