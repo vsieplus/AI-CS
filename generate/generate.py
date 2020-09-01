@@ -46,11 +46,11 @@ def parse_args() -> argparse.Namespace:
 def convert_splits_to_bpm(splits, bpm, blank_note):
     """
     Helper function to convert 10ms splits -> the given bpm as best as possible
-        splits: list of [time, notes] representing all 10ms frames
+        splits: list of notes representing all 10ms frames
     """
     #   bpm     1min       1s        10ms                                      bpm
     #  ----- * ------ * -------- * --------- -> beats per (10 ms) split =  ------------
-    #   1min    60s      1000ms     1 split                                (60) * (100)
+    #   1min     60s     1000ms     1 split                                (60) * (100)
     # chart frame rate = 1/(^^^^^^^^^^^^^) = 100        
     # or alternatively, the number of 10ms splits ber beat = 6000 / bpm
 
@@ -149,8 +149,6 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
 
     # convert splits to the given bpm; return pairs of updated beatsplits/chart notes
     chart_sections = convert_splits_to_bpm(splits, display_bpm, blank_note)
-    #chart_sections = [[10, splits]]
-
     charts_to_save = []
 
     if chart_format == 'ucs' or chart_format == 'both':
@@ -169,7 +167,8 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
         chart_fp = audio_filename + '.ucs'
         charts_to_save.append((chart_fp, chart_txt))
 
-    # convert steps from ucs -> ssc format + save if needed ######## TODO fix output ########
+    ######## TODO fix ssc output ########
+    # convert steps from ucs -> ssc format + save if needed
     if chart_format == 'ssc' or chart_format == 'both':
         chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 
             'MUSIC': os.path.join(out_dir, audio_filename), 'OFFSET': 0.0, 'BPMS': f'0.0={display_bpm}', 
@@ -198,7 +197,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
 
     print(f'Saved to {out_dir}')
 
-def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, 
+def generate_chart(placement_model, selection_model, audio_file, chart_type, chart_level, vocab_size,
                    n_step_features, special_tokens, conditioned, sampling, k, p, b, device=torch.device('cpu')):
     print('Generating chart - this may take a bit...')
 
@@ -211,7 +210,7 @@ def generate_chart(placement_model, selection_model, audio_file, chart_type, cha
     if not conditioned:
         placement_hiddens = None
 
-    chart_data = generate_steps(selection_model, placements, placement_hiddens, n_step_features,
+    chart_data = generate_steps(selection_model, placements, placement_hiddens, vocab_size, n_step_features,
                                 chart_type, sample_rate, special_tokens, sampling, k, p, b, device)
 
     return chart_data, peaks
@@ -255,7 +254,7 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level,
 
     return placements, peaks, placement_hiddens, sample_rate    
 
-def generate_steps(selection_model, placements, placement_hiddens, n_step_features, chart_type,
+def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n_step_features, chart_type,
                    sample_rate, special_tokens, sampling, k, p, b, device=torch.device('cpu')):
     placement_frames = (placements == 1).nonzero(as_tuple=False).flatten()
     num_placements = int(placements.sum().item())
@@ -268,8 +267,15 @@ def generate_steps(selection_model, placements, placement_hiddens, n_step_featur
     num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
 
     # filtering indices for step selection (see filter_step_dist(..))
-    hold_filters = [get_state_indices(j, [0, 1], chart_type, special_tokens) for j in range(num_arrows)]
-    empty_filters = [get_state_indices(j, [2, 3], chart_type, special_tokens) for j in range(num_arrows)]
+    # TODO manual save 
+    hold_filters, empty_filters = [], []
+    for j in range(num_arrows):
+        hold_filters.append(get_state_indices(j, [0, 1], chart_type, special_tokens))
+        empty_filters.append(get_state_indices(j, [2, 3], chart_type, special_tokens))
+    
+        hold_filters[-1] = [idx for idx in hold_filters[-1] if idx < vocab_size]
+        empty_filters[-1] = [idx for idx in hold_filters[-1] if idx < vocab_size]
+
 
     # Start generating the sequence of steps
     step_length = torch.ones(1, dtype=torch.long, device=device)
@@ -520,9 +526,11 @@ def main():
     print(f'Generating a {model_summary["chart_type"].split("-")[-1]} {args.level} chart for {args.song_name}')
     print(f'Decoding strategy: {args.sampling} ; k: {args.k}, p: {args.p}, b: {args.b}')
 
+    vocab_size = model_summary['vocab_size']
+
     # a list of pairs of (absolute time (s), step [ucs str format])
     chart_data, _ = generate_chart(placement_model, selection_model, args.audio_file, model_summary['chart_type'],
-                                   args.level, model_summary['selection_input_size'], special_tokens, conditioned,
+                                   args.level, vocab_size, model_summary['selection_input_size'], special_tokens, conditioned,
                                    args.sampling, args.k, args.p, args.b, device)
 
     if chart_data:

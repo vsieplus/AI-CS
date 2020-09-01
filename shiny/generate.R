@@ -102,13 +102,14 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   })
 
   genConfig <- generate$get_gen_config(modelSummary, modelPath)
-  
+
   placementModel = genConfig[[1]]
   selectionModel = genConfig[[2]]
   specialTokens = genConfig[[3]]
   
   chartType = modelSummary[['chart_type']]
-  inputSize = as.integer(modelSummary[['selection_input_size']])
+  vocabSize = modelSummary[['vocab_size']]
+  inputSize = modelSummary[['selection_input_size']]
 
   if(showUpdates) {
     updateProgress(value = 0.3, detail = 'Generating step placements')
@@ -129,7 +130,7 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
     Sys.sleep(1)
   }
 
-  generatedSteps <- generate$generate_steps(selectionModel, placements, placementHiddens,
+  generatedSteps <- generate$generate_steps(selectionModel, placements, placementHiddens, vocabSize,
                                             inputSize, chartType, sampleRate, specialTokens, 
                                             sampling = sampleStrat, k = topkK, p = toppP, b = beamSize)
 

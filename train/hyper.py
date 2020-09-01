@@ -33,8 +33,8 @@ PLACEMENT_POOL_KERNEL = (1, 3)
 PLACEMENT_UNROLLING_LEN = 100
 
 # Thresholds for peak picking
-MIN_THRESHOLD = 0.10
-MAX_THRESHOLD = 0.25
+MIN_THRESHOLD = 0.15
+MAX_THRESHOLD = 0.45
 MAX_CHARTLEVEL = 28
 
 # TODO (experiments)
@@ -45,7 +45,7 @@ MAX_CHARTLEVEL = 28
 #    4 :
 #}
 
-PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
+PLACEMENT_THRESHOLDS = [MAX_THRESHOLD - ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
 						for level in range(1, MAX_CHARTLEVEL + 1)]
 
 # chart_feats + output of cnn -> last filter size * pooled audio feats -> 160

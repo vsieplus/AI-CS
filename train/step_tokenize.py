@@ -2,10 +2,18 @@
 
 import itertools
 import math
+import os
 
+from joblib import Memory
+from pathlib import Path
 import torch
 
 from hyper import NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES, MAX_ACTIVE_ARROWS
+
+ABS_PATH = str(Path(__file__).parent.absolute())
+CACHE_DIR = os.path.join(ABS_PATH, '.dataset_cache/')
+
+memory = Memory(CACHE_DIR, verbose=0, compress=True)
 
 UCS_SSC_DICT = {
 	'.': '0',   # no step
@@ -103,7 +111,7 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
 					if v == curr_step:
 						special_idx = k
 						break
-			targets[s] = special_idx
+			targets[s] = int(special_idx)
 			continue
 
 		for num_active in range(num_active_arrows):
@@ -219,6 +227,7 @@ def calc_arrangements(starting_index, num_indices, max_index):
 		return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
 					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
 
+@memory.cache
 def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
 	"""
 	return all the vocabulary indices for which the arrow at arrow_idx has any
@@ -230,13 +239,15 @@ def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
 	note = ['.'] * num_arrows
 
 	other_idxs = [i for i in range(num_arrows) if i != arrow_idx]
-	other_permutations = list(itertools.product(STATE_TO_UCS.values(), repeat=len(other_idxs)))
+	max_active = MAX_ACTIVE_ARROWS[chart_type]
+
+	other_states = get_other_states(max_active, other_idxs)
 
 	for state in arrow_states:
 		note[arrow_idx] = STATE_TO_UCS[state]	
 			
-		for permutation in other_permutations:
-			for i, step in enumerate(permutation):
+		for other_state in other_states:
+			for i, step in enumerate(other_state):
 				note[other_idxs[i]] = step
 
 			step_states.append(''.join(note))
@@ -246,7 +257,30 @@ def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens):
 				if special_token[arrow_idx] == state:
 					step_states.append(special_token)
 
+	# TODO make more efficient conversion from str -> index
 	step_tensors = sequence_to_tensor(step_states)
 	step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, special_tokens)
 
 	return step_indices
+
+# helper functions to reduce search space of (doubles) active combintions
+def get_other_states(max_active, other_idxs):
+	state_arrangements = stars_and_bars(star=STATE_TO_UCS.values(), bar='.', star_count=max_active, 
+										bar_count=len(other_idxs) - max_active)
+	for arr in state_arrangements:
+		yield from itertools.product(*arr)
+
+# https://stackoverflow.com/questions/30301515/how-can-i-create-a-permutation-with-a-limit-on-specific-characters-efficently
+def stars_and_bars(star, bar, star_count, bar_count):
+    if star_count == 0:
+        yield (bar,) * bar_count
+        return
+    if bar_count == 0:
+        yield (star,) * star_count
+        return
+    for left in range(star_count + 1):
+        right = star_count - left
+        assert right >= 0
+        assert left + right == star_count
+        for partial in stars_and_bars(star, bar, left, bar_count - 1):
+            yield partial + (bar,) + (star,) * right
