@@ -390,14 +390,6 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     print('Starting training..')
     for epoch in trange(num_epochs):
         if epoch < start_epoch:
-            # enumerate data loaders to maintain consistent epoch batching
-            for i, _ in enumerate(train_iter):
-                pass
-            
-            if epoch % validate_every_x_epoch == 0:
-                for i, _ in enumerate(valid_iter):
-                    pass
-
             continue
 
         print('Epoch: {}'.format(epoch))
@@ -578,7 +570,6 @@ def main():
 
     device = torch.device('cuda' if torch.cuda.is_available() and not args.cpu else 'cpu')
     print('Device:', device)
-    torch.manual_seed(SEED)
 
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
