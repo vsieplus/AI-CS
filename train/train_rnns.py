@@ -575,10 +575,10 @@ def main():
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
     
     orig_special_tokens = None
-    if args.fine_tune:
+    if args.load_checkpoint:
         prev_special_tokens_path = os.path.join(args.load_checkpoint, SPECIAL_TOKENS_SAVE)
         if os.path.isfile(prev_special_tokens_path):
-            with open(prev_speical_tokens_path, 'r') as f:
+            with open(prev_special_tokens_path, 'r') as f:
                 orig_special_tokens = json.loads(f.read())
 
     # load the dataset first only if not loading from checkpoint, fine-tuning, or 
@@ -586,10 +586,11 @@ def main():
     first_dataset_load = (not args.load_checkpoint or (args.load_checkpoint and args.fine_tune)
                           or (args.load_checkpoint and not os.path.isfile(os.path.join(args.load_checkpoint, SUMMARY_SAVE))))
     print('Loading dataset to memory:', args.load_to_memory)
-    print('Conditioning:', args.conditioning)
     print('Computing dataset stats [first load]:', first_dataset_load)
     print('Fine tuning:', args.fine_tune)
     dataset = StepchartDataset(args.dataset_path, args.load_to_memory, first_dataset_load, orig_special_tokens)
+
+    print('Dataset vocab size:', dataset.vocab_size)
 
     if not args.save_dir:
         if args.load_checkpoint and not args.fine_tune:
@@ -623,7 +624,8 @@ def main():
     else:
         with open(summary_path, 'r') as f:
             summary_json = json.loads(f.read())
-        dataset.vocab_size = summary_json['vocab_size']
+        args.conditioning = summary_json['conditioning']
+        print('Conditioning:', args.conditioning)
 
     # save special tokens for dataset vocabulary if needed + default thresholds
     if dataset.special_tokens:

@@ -142,7 +142,7 @@ class StepchartDataset(Dataset):
         # track special tokens in this dataset (idx -> ucs step (str))
 		if special_tokens:
 			self.special_tokens = special_tokens
-			self.vocab_size = len(special_tokens) - 1
+			self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type] + len(special_tokens)
 		else:
 			self.special_tokens = {}
 			self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type]
