@@ -8,12 +8,11 @@ import re
 import shutil
 
 import torch
-from joblib import Memory
 from tqdm import trange
 
 import sys
 sys.path.append(os.path.join('..', 'train'))
-from hyper import (N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES
+from hyper import (N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES,
                    SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE)
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer import ArrowTransformer
@@ -22,8 +21,7 @@ from step_tokenize import get_state_indices, step_features_to_str, step_index_to
 from predict_placements import predict_placements
 import train_util
 
-memory = Memory('.gen_cache', verbose=0, compress=True)
-get_state_indices = memory.cache(get_state_indices)
+FILTERING_INDICES_PATH = 'filter_indices.json'
 
 # default 4 beats per measure
 BEATS_PER_MEASURE = 4
@@ -47,6 +45,31 @@ def parse_args() -> argparse.Namespace:
 
 
     return parser.parse_args()
+
+def get_filter_indices(chart_type):
+    # filtering indices for step selection (see filter_step_dist(..))
+    # only compute once for base vocab sizes + save for effeciency
+    if os.path.isfile(FILTERING_INDICES_PATH):
+        with open(FILTERING_INDICES_PATH, 'r') as f:
+            step_filters = json.loads(f.read())
+    else:
+        step_filters = {'pump-single': {}, 'pump-double': {}}
+        for mode in step_filters:
+            curr_hold_filters, curr_empty_filters = [], []
+            for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
+                curr_hold_filters.append(get_state_indices(j, [0, 1], mode))
+                curr_empty_filters.append(get_state_indices(j, [2, 3], mode))
+            
+            step_filters[mode]['hold'] = curr_hold_filters
+            step_filters[mode]['empty'] = curr_empty_filters
+
+        with open(FILTERING_INDICES_PATH, 'w') as f:
+            f.write(json.dumps(step_filters))
+
+    hold_filters = step_filters[chart_type]['hold']
+    empty_filters = step_filters[chart_type]['empty']
+
+    return hold_filters, empty_filters
 
 def convert_splits_to_bpm(splits, bpm, blank_note):
     """
@@ -269,14 +292,9 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
     # store pairs of time (s) and step vocab indices
     chart_data = []
 
-    num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
+    num_arrows = n_step_features // NUM_ARROW_STATES
 
-    # filtering indices for step selection (see filter_step_dist(..))
-    hold_filters, empty_filters = [], []
-    for j in range(num_arrows):
-        hold_filters.append(get_state_indices(j, [0, 1], chart_type, special_tokens, vocab_size))
-        empty_filters.append(get_state_indices(j, [2, 3], chart_type, special_tokens, vocab_size))
-
+    hold_filters, empty_filters = get_filter_indices(chart_type)
 
     # Start generating the sequence of steps
     step_length = torch.ones(1, dtype=torch.long, device=device)
@@ -351,7 +369,6 @@ def filter_steps(token_str, hold_indices, step_indices):
     # filter out step exceptions
     new_token_str = ''
     new_hold_indices = []
-    released_indices = []
 
     for j in range(len(token_str)):
         token = token_str[j]
@@ -362,19 +379,30 @@ def filter_steps(token_str, hold_indices, step_indices):
                 # if previous step 'X', change X -> M, and leave this as 'W' (fill in 'H' later)
                 new_hold_indices.append(j)
                 step_indices.remove(j)
+            elif j in hold_indices:
+                hold_indices.remove(j)
             else:
-                # should have  j in hold_indices
-                hold_indices.discard(j)
+                token = '.'
         elif token == 'H' and j not in hold_indices:
-            hold_indices.add(j)
             #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' (hold start)
             if j in step_indices:
+                hold_indices.add(j)
                 new_hold_indices.append(j)
                 step_indices.remove(j)
+            else:
+                token = '.'
         elif token == 'X':
-            step_indices.add(j)
+            if j in hold_indices:
+                token = 'W'
+                hold_indices.remove(j)
+            else:
+                step_indices.add(j)
         elif token == '.':
-            step_indices.discard(j)
+            if j in hold_indices:
+                token = 'W'
+                hold_indices.remove(j)
+            elif j in step_indices:
+                step_indices.remove(j)
              
         new_token_str += token
 

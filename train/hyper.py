@@ -38,8 +38,8 @@ MAX_THRESHOLD = 0.30
 MAX_CHARTLEVEL = 28
 
 # only used as starting default (will be optimized on test set after training for each model)
-PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD)
-						for level in range(1, MAX_CHARTLEVEL + 1)]
+PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD) for level in range(1, MAX_CHARTLEVEL + 1)]
+PLACEMENT_THRESHOLDS = {key: val for key,val in enumerate(PLACEMENT_THRESHOLDS)}
 
 # chart_feats + output of cnn -> last filter size * pooled audio feats -> 160
 PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160

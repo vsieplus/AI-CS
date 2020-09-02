@@ -94,16 +94,19 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
 		# if num active exceed maximum, add to end of special tokens
 		if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
 			curr_step = step_features_to_str(step_input[s])
-			if curr_step not in special_tokens.values():
-				special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
-				special_tokens[special_idx] = curr_step
-				n_special_tokens += 1
+			if special_tokens:
+				if curr_step not in special_tokens.values():
+					special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
+					special_tokens[special_idx] = curr_step
+					n_special_tokens += 1
+				else:
+					for k,v in special_tokens.items():
+						if v == curr_step:
+							special_idx = k
+							break
+				targets[s] = int(special_idx)
 			else:
-				for k,v in special_tokens.items():
-					if v == curr_step:
-						special_idx = k
-						break
-			targets[s] = int(special_idx)
+				targets[s] = int(9999999)
 			continue
 
 		for num_active in range(num_active_arrows):
@@ -219,58 +222,35 @@ def calc_arrangements(starting_index, num_indices, max_index):
 		return sum([calc_arrangements(next_index, num_indices - 1, max_index) 
 					for next_index in range(starting_index + 1, max_index - (num_indices - 1) + 2)])
 
-def get_state_indices(arrow_idx, arrow_states, chart_type, special_tokens, vocab_size):
-	"""
-	return all the vocabulary indices for which the arrow at arrow_idx has any
-	of the given arrow_state(s)
-	"""
-	num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
-	step_states = []
+def get_state_indices(arrow_idx, arrow_states, chart_type):
+    """
+    return all the vocabulary indices for states in which the arrow at arrow_idx has any
+    of the given arrow_state(s)
+    """
+    num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
+    vocab_size = SELECTION_VOCAB_SIZES[chart_type]
+    step_states = []
 
-	note = ['.'] * num_arrows
+    other_idxs = [i for i in range(num_arrows) if i != arrow_idx]
+    max_active = MAX_ACTIVE_ARROWS[chart_type]
 
-	other_idxs = [i for i in range(num_arrows) if i != arrow_idx]
-	max_active = MAX_ACTIVE_ARROWS[chart_type]
+    other_states = list(itertools.product(STATE_TO_UCS.values(), repeat=num_arrows - 1))
 
-	other_states = get_other_states(max_active, other_idxs)
+    for state in arrow_states:
+        note = ['.'] * num_arrows
+        note[arrow_idx] = STATE_TO_UCS[state]	
 
-	for state in arrow_states:
-		note[arrow_idx] = STATE_TO_UCS[state]	
-			
-		for other_state in other_states:
-			for i, step in enumerate(other_state):
-				note[other_idxs[i]] = step
+        for other_state in other_states:
+            for i, step in enumerate(other_state):
+                if i != arrow_idx:
+                    note[i] = step
+            step_states.append(''.join(note))
 
-			step_states.append(''.join(note))
+    step_tensors = sequence_to_tensor(step_states)
+    step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, None)
 
-		if special_tokens:
-			for idx, special_token in special_tokens.items():
-				if special_token[arrow_idx] == state:
-					step_states.append(special_token)
+    step_indices = [index.item() for index in step_indices]
 
-	step_tensors = sequence_to_tensor(step_states)
-	step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, special_tokens)
+    step_indices = list(filter(lambda x: x < vocab_size, step_indices))
 
-	return filter(lambda x: x < vocab_size, step_indices)
-
-# helper functions to reduce search space of (doubles) active combintions
-def get_other_states(max_active, other_idxs):
-	state_arrangements = stars_and_bars(star=STATE_TO_UCS.values(), bar='.', star_count=max_active, 
-										bar_count=len(other_idxs) - max_active)
-	for arr in state_arrangements:
-		yield from itertools.product(*arr)
-
-# https://stackoverflow.com/questions/30301515/how-can-i-create-a-permutation-with-a-limit-on-specific-characters-efficently
-def stars_and_bars(star, bar, star_count, bar_count):
-    if star_count == 0:
-        yield (bar,) * bar_count
-        return
-    if bar_count == 0:
-        yield (star,) * star_count
-        return
-    for left in range(star_count + 1):
-        right = star_count - left
-        assert right >= 0
-        assert left + right == star_count
-        for partial in stars_and_bars(star, bar, left, bar_count - 1):
-            yield partial + (bar,) + (star,) * right
+    return step_indices
