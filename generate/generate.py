@@ -4,7 +4,6 @@ import argparse
 import json
 import math
 import os
-import re
 import shutil
 
 import torch
@@ -49,16 +48,21 @@ def parse_args() -> argparse.Namespace:
 def get_filter_indices(chart_type):
     # filtering indices for step selection (see filter_step_dist(..))
     # only compute once for base vocab sizes + save for effeciency
+
+    # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
+    # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
+    # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
+
     if os.path.isfile(FILTERING_INDICES_PATH):
         with open(FILTERING_INDICES_PATH, 'r') as f:
             step_filters = json.loads(f.read())
     else:
         step_filters = {'pump-single': {}, 'pump-double': {}}
         for mode in step_filters:
-            curr_hold_filters, curr_empty_filters = [], []
+            curr_hold_filters, curr_empty_filters = {}, {}
             for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
-                curr_hold_filters.append(get_state_indices(j, [0, 1], mode))
-                curr_empty_filters.append(get_state_indices(j, [2, 3], mode))
+                curr_hold_filters[str(j)] = get_state_indices(j, [0, 1], mode)  # filter 1
+                curr_empty_filters[str(j)] = get_state_indices(j, [2, 3], mode) # filter 2-3
             
             step_filters[mode]['hold'] = curr_hold_filters
             step_filters[mode]['empty'] = curr_empty_filters
@@ -114,7 +118,7 @@ def convert_splits_to_bpm(splits, bpm, blank_note):
             # check if any splits have placements that don't line up with the
             # min splits per beat (4) - increase as necessary
             for k, note in enumerate(curr_splits):
-                if re.search('[MXW]', note): # ignore steps with just holds
+                if note != blank_note:
                     # in the worst case, we need to keep all the original splits
                     while k % split_interval != 0 and new_beatsplit < splits_per_beat:
                         new_beatsplit += 1
@@ -352,62 +356,6 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
 
     return chart_data
 
-def replace_steps(new_hold_indices, chart_data, i):
-    # replace steps ('X') immediately before holds ('H') as ('M')
-    if new_hold_indices:
-        prev_step = chart_data[i - 1][1] 
-        replacement = ''
-        for k in range(len(prev_step)):
-            if k in new_hold_indices:
-                replacement += 'M'
-            else:
-                replacement += prev_step[k]
-
-        chart_data[i - 1][1] = replacement
-
-def filter_steps(token_str, hold_indices, step_indices):
-    # filter out step exceptions
-    new_token_str = ''
-    new_hold_indices = []
-
-    for j in range(len(token_str)):
-        token = token_str[j]
-
-        #  - cannot release 'W' if not currently held
-        if token == 'W':
-            if j in step_indices:
-                # if previous step 'X', change X -> M, and leave this as 'W' (fill in 'H' later)
-                new_hold_indices.append(j)
-                step_indices.remove(j)
-            elif j in hold_indices:
-                hold_indices.remove(j)
-            else:
-                token = '.'
-        elif token == 'H' and j not in hold_indices:
-            #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' (hold start)
-            if j in step_indices:
-                hold_indices.add(j)
-                new_hold_indices.append(j)
-                step_indices.remove(j)
-            else:
-                token = '.'
-        elif token == 'X':
-            if j in hold_indices:
-                token = 'W'
-                hold_indices.remove(j)
-            else:
-                step_indices.add(j)
-        elif token == '.':
-            if j in hold_indices:
-                token = 'W'
-                hold_indices.remove(j)
-            elif j in step_indices:
-                step_indices.remove(j)
-             
-        new_token_str += token
-
-    return new_token_str, new_hold_indices
-
 def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, step_length, 
                         num_arrows, hold_indices, step_indices, chart_type, special_tokens, 
                         hold_filters, empty_filters, device):
@@ -460,19 +408,63 @@ def save_best_beam(best, placement_times, chart_data, chart_type, special_tokens
         
         chart_data.append([placement_times[m - 1], token_str])
 
+def replace_steps(new_hold_indices, chart_data, i):
+    # replace steps ('X') immediately before holds ('H') as ('M')
+    if new_hold_indices:
+        prev_step = chart_data[i - 1][1] 
+        replacement = ''
+        for k in range(len(prev_step)):
+            if k in new_hold_indices:
+                replacement += 'M'
+            else:
+                replacement += prev_step[k]
+
+        chart_data[i - 1][1] = replacement
+
+def filter_steps(token_str, hold_indices, step_indices):
+    # filter out step exceptions + track holds and steps
+    new_token_str = ''
+    new_hold_indices = []
+
+    for j in range(len(token_str)):
+        token = token_str[j]
+
+        #  - cannot release 'W' if not currently held
+        if token == 'W':
+            if j in step_indices:
+                # if previous step 'X', change X -> M, and leave this as 'W' (fill in 'H' later)
+                new_hold_indices.append(j)
+                step_indices.remove(j)
+            else:
+                hold_indices.remove(j)
+        elif token == 'H' and j not in hold_indices:
+            #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' (hold start)
+            if j in step_indices:
+                hold_indices.add(j)
+                new_hold_indices.append(j)
+                step_indices.remove(j)
+        elif token == 'X':
+            step_indices.add(j)
+        elif token == '.':
+            step_indices.discard(j)
+             
+        new_token_str += token
+
+    return new_token_str, new_hold_indices
+
 def filter_step_dist(dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters):
-    """Filter step distributions to exclude impossible step sequences"""
+    """Filter step distributions to exclude impossible step sequences; see get_filter_indices()"""
     # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
     # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
     # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
     for j in range(num_arrows):
         # filter step combinations where the jth step is empty or a step (states = 0, 1)
         if j in hold_indices:
-            dist[hold_filters[j]] = 0.0
+            dist[hold_filters[str(j)]] = 0.0
 
         # if arrow j neither preceded by 'H' or 'X', filter out holds (state = 2) and releases (state = 3)
         elif j not in step_indices:
-            dist[empty_filters[j]] = 0.0
+            dist[empty_filters[str(j)]] = 0.0
 
     return dist
 

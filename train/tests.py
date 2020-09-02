@@ -8,19 +8,16 @@ step_sequence_to_targets, sequence_to_tensor)
 d = torch.device('cpu')
 
 class TestStepchart(unittest.TestCase):
-	@unittest.skip('temp')
 	def test_tokenization_single(self):
 		for i in range(1024):
 			feats = step_index_to_features(i, 'pump-single', None, d).unsqueeze(0)
 			self.assertEqual(step_sequence_to_targets(feats, 'pump-single', None)[0].item(), i)
 
-	@unittest.skip('temp')
 	def test_tokenization_double(self):
 		for i in range(20686):
 			feats = step_index_to_features(i, 'pump-double', None, d).unsqueeze(0)
 			self.assertEqual(step_sequence_to_targets(feats, 'pump-double', None)[0].item(), i)
 
-	@unittest.skip('temp')
 	def test_special_tokens(self):
 		special = {20686: 'XXXXXXXXXX', 20687: '..HHXHH..'}
 		for key, val in special.items():
@@ -43,28 +40,32 @@ class TestStepchart(unittest.TestCase):
 		tokens_to_check = ['.....', 'X.W..', 'X.H..', '..W..', 'X....', 'X.HX.', '..WX.']
 		tokens_to_omit = ['W.WX.', 'H..X.', 'H....', 'W.WXX', 'H.W..', 'W...X']		
 
-		check_targets, _ = step_sequence_to_targets(sequence_to_tensor(tokens_to_check), 'pump-single', None)
-		omit_targets, _ = step_sequence_to_targets(sequence_to_tensor(tokens_to_omit), 'pump-single', None)
-
-		for i, target in enumerate(check_targets):
-			self.assertTrue(target.item() in h_indices_0, f'{target.item()}, {tokens_to_check[i]} not in {h_indices_0}')
-
-		for i, target in enumerate(omit_targets):
-			self.assertFalse(target.item() in h_indices_0, f'{target.item()}, {tokens_to_omit[i]} not in {h_indices_0}')
+		self.test_tokens(tokens_to_check, tokens_to_omit, 'pump-single', h_indices_0)
 
 		h_indices_1 = get_state_indices(4, [2,3], 'pump-single')
 
 		tokens_to_check = ['....H', 'X.W.W', 'X.H.W', '..W.H', 'X...W', 'X.HXW', '..WXH']
 		tokens_to_omit = ['W.WX.', 'H.WX.', 'H..X.', 'W.WXX', 'H....', 'W.WXX', 'H.W..', 'W...X']
 
-		check_targets, _ = step_sequence_to_targets(sequence_to_tensor(tokens_to_check), 'pump-single', None)
-		omit_targets, _ = step_sequence_to_targets(sequence_to_tensor(tokens_to_omit), 'pump-single', None)
+		self.test_tokens(tokens_to_check, tokens_to_omit, 'pump-single', h_indices_1)
+
+		h_indices_2 = get_state_indices(1, [1,2,3], 'pump-double')
+
+		tokens_to_check = ['.X.H....X.', 'XW...X....', 'XW.....H.W', '.HW......H', '.X..W...H.', 'XW.X......', 'W........X']
+		tokens_to_omit =  ['H......WX.', 'H...W...X.', 'W.......WX', '...XX.....', 'W....W...H', '.....XX.X.', 'W..XW..X..']
+
+		self.test_tokens(tokens_to_check, tokens_to_omit, 'pump-single', h_indices_2)
+
+	@unittest.skip('helper')
+	def test_tokens(self, tokens_to_check, tokens_to_omit, chart_type, indices):
+		check_targets, _ = step_sequence_to_targets(sequence_to_tensor(tokens_to_check), chart_type, None)
+		omit_targets, _ = step_sequence_to_targets(sequence_to_tensor(tokens_to_omit), chart_type, None)
 
 		for i, target in enumerate(check_targets):
-			self.assertTrue(target.item() in h_indices_1, f'{target.item()}, {tokens_to_check[i]} not in {h_indices_1}')
+			self.assertTrue(target.item() in indices, f'{target.item()}, {tokens_to_check[i]} not in {indices}')
 
 		for i, target in enumerate(omit_targets):
-			self.assertFalse(target.item() in h_indices_1, f'{target.item()}, {tokens_to_omit[i]} not in {h_indices_1}')
+			self.assertFalse(target.item() in indices, f'{target.item()}, {tokens_to_omit[i]} not in {indices}')
 
 if __name__ == '__main__':
 	unittest.main()
