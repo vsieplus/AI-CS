@@ -140,12 +140,12 @@ class StepchartDataset(Dataset):
 		self.n_unique_songs = 0
 
         # track special tokens in this dataset (idx -> ucs step (str))
-        if special_tokens:
-            self.special_tokens = special_tokens
-            self.vocab_size = len(special_tokens) - 1
-        else:
-		    self.special_tokens = {}
-            self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type]
+		if special_tokens:
+			self.special_tokens = special_tokens
+			self.vocab_size = len(special_tokens) - 1
+		else:
+			self.special_tokens = {}
+			self.vocab_size = SELECTION_VOCAB_SIZES[self.chart_type]
 
 		# store the file paths and chart_indices to load
 		self.chart_ids = self.filter_fps([os.path.join(DATA_DIR, fp) for fp in metadata['json_fps']])
@@ -154,7 +154,9 @@ class StepchartDataset(Dataset):
 		self.load_to_memory = load_to_memory
 		if load_to_memory or first_dataset_load:
 			self.compute_stats(load_to_memory)
-            self.computed_stats = True
+			self.computed_stats = True
+		else:
+			self.computed_stats = False
 
 	def __len__(self):
 		return len(self.chart_ids)

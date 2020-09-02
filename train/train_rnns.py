@@ -582,15 +582,22 @@ def main():
 
     # Retrieve/prepare data
     print('Loading dataset from {}...'.format(os.path.relpath(args.dataset_path)))
+    
+    orig_special_tokens = None
     if args.fine_tune:
         prev_special_tokens_path = os.path.join(args.load_checkpoint, SPECIAL_TOKENS_SAVE)
         if os.path.isfile(prev_special_tokens_path):
             with open(prev_speical_tokens_path, 'r') as f:
                 orig_special_tokens = json.loads(f.read())
-        else:
-            orig_special_tokens = None
 
-    first_dataset_load = not args.load_checkpoint or (args.load_checkpoint and args.fine_tune):
+    # load the dataset first only if not loading from checkpoint, fine-tuning, or 
+    # if loading from checkpoint, the summary file doesn't exist
+    first_dataset_load = (not args.load_checkpoint or (args.load_checkpoint and args.fine_tune)
+                          or (args.load_checkpoint and not os.path.isfile(os.path.join(args.load_checkpoint, SUMMARY_SAVE))))
+    print('Loading dataset to memory:', args.load_to_memory)
+    print('Conditioning:', args.conditioning)
+    print('Computing dataset stats [first load]:', first_dataset_load)
+    print('Fine tuning:', args.fine_tune)
     dataset = StepchartDataset(args.dataset_path, args.load_to_memory, first_dataset_load, orig_special_tokens)
 
     if not args.save_dir:
@@ -614,11 +621,12 @@ def main():
     print(datasets_size_str)
 
     # save initial summary files; if finetuning, copy the old files in addition
-    summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
-                    'test_examples': len(test_data), 'conditioning': args.conditioning }
-    summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
-    with open(os.path.join(args.save_dir, SUMMARY_SAVE), 'w') as f:
-        f.write(json.dumps(summary_json, indent=2))
+    if first_dataset_load:
+        summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
+                        'test_examples': len(test_data), 'conditioning': args.conditioning }
+        summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
+        with open(os.path.join(args.save_dir, SUMMARY_SAVE), 'w') as f:
+            f.write(json.dumps(summary_json, indent=2))
 
     # save special tokens for dataset vocabulary if needed + default thresholds
     if dataset.special_tokens:
@@ -639,7 +647,7 @@ def main():
 
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
-               args.load_checkpoint, args.finetune, dataset, args.conditioning)
+               args.load_checkpoint, args.fine_tune, dataset, args.conditioning)
 
 if __name__ == '__main__':
     main()
