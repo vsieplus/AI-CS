@@ -18,6 +18,9 @@ information is also used to help the models perform this task. The process for s
 the one presented in DDC (sections 4.2/4.3 [here](https://arxiv.org/pdf/1703.06891.pdf)). In addition to 
 concatenating one-hot representations of chart level, we concatenate one-hot representations of chart type
 (single or double) as well, to represent the difference in chart densities between singles and doubles charts.
+Note that because step placement must be performed for both singles and doubles charts, a single placement
+model may be used with different selection models. This is in contrast to the selection models themselves,
+as discussed below.
 
 ### Step Selection
 
@@ -34,7 +37,8 @@ these arrangements are likely never used (e.g. most arrangements of 5+ arrows at
 optimizations, we decide to truncate the vocabulary for doubles primarily to step arrangements of up to 4 arrows at
 any one time. We do however allow certain exceptions to be considered if they appear in the training data, 
 such as steps from charts like Another Truth D17/18, Hi-Bi D20, Achluoias D26, etc. where more than 4 arrows are 
-activated (on, off, or release) at any given time. In this case, these special tokens are appended to the base vocabulary. Altogether this gives a much smaller base vocab size of
+activated (on, off, or release) at any given time. In this case, these special tokens are appended to the base vocabulary.
+Altogether this gives a much smaller base vocab size of
 
 <img src="https://latex.codecogs.com/gif.latex?4%5E%7B10%7D%20-%20%5Csum_%7Bi%3D5%7D%5E%7B10%7D%20%7B10%20%5Cchoose%20i%7D%20%5Ccdot%203%5E%7Bi%7D%20%3D%2020%2C686">
 
@@ -42,7 +46,8 @@ The primary step selection model is adapted from the LSTM RNN architecture prese
 addition of providing the ability for the model to take into account the LSTM outputs of the placement model, using a normalized 
 weighted sum of these outputs and the previous hidden states to compute a weighted hidden state for the selection RNN. Intuitively,
 this design aims to provide the selection model with both audio and sequence context when trying to predict the next step, as both
-aspects seem to play a role in how humans select steps.
+aspects seem to play a role in how humans select steps. There is also the option to train without this conditioning, in which
+the selection model relies solely on the step sequences, and has no input from the audio.
 
 The second is an Arrow Transformer, which uses a relative self-attention mechanism. This mechanism aims to enable the model
 to more meaningfully capture long-distance dependencies across entire step sequences. In many human-written step charts, elements and 'motifs'

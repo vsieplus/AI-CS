@@ -114,6 +114,6 @@ def optimize_placement_thresholds(placement_model, valid_iter, device, num_itera
 
     # default to avg. if no chart examples for a certain level
     for j in missing_levels:
-        thresholds[str(j + 1)] = (max(thresholds.values()) - min(thresholds.values())) / 2
+        thresholds[str(j + 1)] = sum(thresholds.values()) / len(thresholds)
 
     return thresholds

@@ -34,17 +34,6 @@ extract_audio_feats = memory.cache(extract_audio_feats)
 # import chart util functions from r script
 robj.r.source(R_CHART_UTIL_PATH)	
 
-# returns splits of the given (torch) dataset; assumes 3 way split
-def get_splits(dataset):
-	split_sizes = []
-	for i, split in enumerate(dataset.splits):
-		if i == len(dataset.splits) - 1:
-			split_sizes.append(len(dataset) - sum(split_sizes))
-		else:
-			split_sizes.append(round(split * len(dataset)))
-	train, valid, test = random_split(dataset, split_sizes, generator=torch.Generator().manual_seed(SEED))
-	return train, valid, test
-
 def collate_charts(batch):
 	"""custom collate function for dataloader
 		input: dict of chart objects/lengths
@@ -165,8 +154,41 @@ class StepchartDataset(Dataset):
 		if self.load_to_memory:
 			return self.charts[idx]
 		else:
-			chart_fp, chart_idx, permutation = self.chart_ids[idx]
+			chart_fp, chart_idx, permutation, _ = self.chart_ids[idx]
 			return self.load_chart(chart_fp, chart_idx, permutation)
+	
+	# returns splits of the dataset; assumes 3 way split
+	# group songs together to avoid crossover between sets
+	def get_splits(self):
+		split_songs = {}
+		song_ids = self.songs.keys()
+
+		for i, split in enumerate(self.splits):
+			split_size = round(split * len(self.songs))
+			split_start = 0 if i == 0 else last_split_end
+
+			curr_song_ids = song_ids[split_start:split_start + split_size]
+			last_split_end = split_start + split_size			
+
+			if i == 0:
+				split_songs['train'] = curr_song_ids
+			elif i == 1:
+				split_songs['valid'] = curr_song_ids
+			else:
+				split_songs['test'] = curr_song_ids
+
+		train_indices, valid_indices, test_indices = [], [], []
+
+		# return indices of chart_ids used in the __getitem function__
+		for j, (_, _, _, song_path) in enumerate(chart_ids):
+			if song_path in split_songs['train']:
+				train_indices.append(j)
+			elif song_path in split_songs['valid']:
+				valid_indices.append(j)
+			else:
+				test_indices.append(j)
+
+		return train_indices, valid_indices, test_indices
 
 	def print_summary(self):
 		print(f'Dataset name: {self.name}')
@@ -183,7 +205,7 @@ class StepchartDataset(Dataset):
 		print("Caching dataset...")
 		
 		# load once at start to compute overall vocab size, various stats + cache tensors
-		charts = [self.load_chart(fp, idx, perm, first=True) for fp, idx, perm in self.chart_ids]
+		charts = [self.load_chart(fp, idx, perm, first=True) for fp, idx, perm, _ in self.chart_ids]
 
 		if load_to_memory:
 			self.charts = charts
@@ -222,7 +244,7 @@ class StepchartDataset(Dataset):
 
 				for chart_idx in chart_indices:
 					for permutation in self.permutations:
-						chart_ids.append((fp, chart_idx, permutation))
+						chart_ids.append((fp, chart_idx, permutation, song_path))
 
 		print('Done filtering!')
 		return chart_ids

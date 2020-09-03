@@ -14,13 +14,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.data.sampler import SubsetRandomSampler
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm, trange
 
 from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from predict_placements import predict_placements, optimize_placement_thresholds
-from stepchart import StepchartDataset, get_splits, collate_charts
+from stepchart import StepchartDataset, collate_charts
 from train_util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model
 
 ABS_PATH = str(Path(__file__).parent.absolute())
@@ -561,9 +562,9 @@ def log_training_stats(writer, dataset, summary_json):
 
     return {**summary_json, **hparam_dict}
 
-def get_dataloader(dataset):
-    return DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_charts,
-                      shuffle=True)
+def get_dataloader(dataset, indices):
+    index_sampler = SubsetRandomSampler(indices)
+    return DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_charts, sampler=index_sampler)
 
 def main():
     args = parse_args()
@@ -603,10 +604,11 @@ def main():
     if not os.path.isdir(args.save_dir):
         os.makedirs(args.save_dir)
 
-    train_data, valid_data, test_data = get_splits(dataset)
-    train_iter = get_dataloader(train_data)
-    valid_iter = get_dataloader(valid_data)
-    test_iter = get_dataloader(test_data)
+    train_indices, valid_indices, test_indices = dataset.get_splits()
+    train_iter = get_dataloader(dataset, train_indices)
+    valid_iter = get_dataloader(dataset, valid_indices)
+    test_iter = get_dataloader(dataset, test_indices)
+    breakpoint()
 
     datasets_size_str = (f'Total charts in dataset: {len(dataset)}\nTrain: {len(train_data)}, '
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')
