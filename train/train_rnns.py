@@ -536,6 +536,7 @@ def log_training_stats(writer, dataset, summary_json):
         writer.add_text('chart_type', dataset.chart_type)
         writer.add_text('song_types', ', '.join(dataset.songtypes))
         writer.add_text('step_artists', ', '.join(dataset.step_artists))
+        writer.add_text('packs', ', '.join(dataset.mixes))
         writer.add_text('permutations', ', '.join(dataset.permutations))
 
         writer.add_hparams(hparam_dict, summary_json)
@@ -556,6 +557,7 @@ def log_training_stats(writer, dataset, summary_json):
         'chart_type': dataset.chart_type,
         'song_types': dataset.songtypes,
         'step_artists': list(dataset.step_artists),
+        'packs': dataset.mixes,
         'permutations': dataset.permutations,
         **hparam_dict
     }

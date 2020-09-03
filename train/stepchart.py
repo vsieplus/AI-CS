@@ -118,6 +118,7 @@ class StepchartDataset(Dataset):
 
 		self.chart_type = metadata['chart_type']
 		self.step_artists = metadata['step_artists']
+		self.mixes = metadata['mixes']
 		self.chart_difficulties = metadata['chart_difficulties']
 		self.min_level = metadata['min_chart_difficulty']
 		self.max_level = metadata['max_chart_difficulty']
@@ -161,7 +162,7 @@ class StepchartDataset(Dataset):
 	# group songs together to avoid crossover between sets
 	def get_splits(self):
 		split_songs = {}
-		song_ids = self.songs.keys()
+		song_ids = list(self.songs.keys())
 
 		for i, split in enumerate(self.splits):
 			split_size = round(split * len(self.songs))
@@ -273,6 +274,10 @@ class StepchartDataset(Dataset):
 
 		if not self.songtypes or self.songtypes and attrs['songtype'] in self.songtypes:
 			for i, chart_attrs in enumerate(attrs['charts']):
+				# skip ucs/missions from ssc files
+				if re.search('(ucs|mission|quest)', chart_attrs['description']):
+					continue
+
 				if chart_attrs['stepstype'] != self.chart_type:
 					continue
 

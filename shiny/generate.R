@@ -31,6 +31,7 @@ getModelSummary <- function(modelPath, as_str) {
               sprintf('Hidden size: %0.f', modelSummary[['hidden_size']]),
               sprintf('Selection hidden weight: %0.2f<br/>', modelSummary[['selection_hidden_wt']]),
               sprintf('Dataset name: %s<br/>', modelSummary[['name']]),
+              sprintf('Packs: %s', cat(modelSummary[['packs']])),
               sprintf('Song types: %s', cat(modelSummary[['song_types']])),
               sprintf('Total unique songs: %0.f', modelSummary[['unique_songs']]),
               sprintf('Total audio hours: %0.4f<br/>', modelSummary[['audio_hours']]),
