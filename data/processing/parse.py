@@ -155,13 +155,17 @@ def ucs_notes_parser(chart_txt):
     # BPM, DELAY, BEAT [beats/measure], SPLIT[splits/beat]
     chart_sections = re.findall(UCS_SECTION_PATTERN + UCS_SPLIT_PATTERNS[chart_type], chart_txt)
     
-    for bpm, delay_ms, beats_per_measure, splits_per_beat, splits_txt in chart_sections:
+    for k, (bpm, delay_ms, beats_per_measure, splits_per_beat, splits_txt) in enumerate(chart_sections):
         bpm = float(bpm)
         delay_ms = float(delay_ms)
         beats_per_measure = int(beats_per_measure)
         splits_per_beat = int(splits_per_beat)
 
         delay_secs = delay_ms / float(1000)
+
+        # subtract 100ms at start to line up notes directly with audio
+        if k == 0:
+            delay_secs -= 0.1
 
         splits = splits_txt.splitlines()
         splits_per_measure = splits_per_beat * beats_per_measure
@@ -200,9 +204,7 @@ def ucs_notes_parser(chart_txt):
     return measures_clean
 
 # helper to compute beat time for a ucs split
-def calc_ucs_beat_time(previous_sections, curr_section, curr_spb,
-    curr_relative_beat, delay_secs):
-    
+def calc_ucs_beat_time(previous_sections, curr_section, curr_spb, curr_relative_beat, delay_secs):
     curr_partial_section = curr_spb * curr_relative_beat
     return previous_sections + curr_partial_section + delay_secs
 
