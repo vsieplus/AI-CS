@@ -1,6 +1,7 @@
 # predict step placements + threshold optimization
 
 from scipy.signal import argrelextrema
+from sklearn.metrics import fbeta_score
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -28,31 +29,81 @@ def predict_placements(logits, levels, lengths, get_probs=False, thresholds=None
         maxima = argrelextrema(probs_smoothed, np.greater_equal, order=1)[0]
 
         for i in maxima:
-            predictions[b, i] = probs[b, i, 1] >= thresholds_to_use[levels[b] - 1]
+            predictions[b, i] = probs[b, i, 1] >= thresholds_to_use[str(levels[b])]
 
     if get_probs:
       return predictions, probs[:, :, 1]
     else:
       return predictions
 
-def get_optimal_threshold(placement_model, test_iter, criterion, device):
+def get_targets_and_probs(placement_model, test_iter, device):   
     placement_model.eval()
 
+    # store the targets and prediction scores for the model on the test set (sep. by level)
+    all_targets, all_probs = {}, {}
+    with torch.no_grad():
+        for batch in test_iter:
+            audio_feats = batch['audio_feats'].to(device)
+            num_audio_frames = audio_feats.size(2)
+            batch_size = audio_feats.size(0)
+
+            audio_lengths = torch.tensor(batch['audio_lengths'], dtype=torch.long, device=device)
+
+            chart_feats = batch['chart_feats'].to(device)
+            levels = batch['chart_levels']
+            
+            targets = batch['placement_targets'].to(device)
+
+            states = placement_model.rnn.initStates(batch_size=batch_size, device=device)
+
+            # [batch, n_audio_frames, 2]
+            logits, _, _ = placement_model(audio_feats, chart_feats, states, audio_lengths)
+
+            probs = F.softmax(logits, dim=-1).squeeze(0)
+
+            for b in range(batch_size):
+                curr_level = levels[b]
+                for i in range(audio_lengths[b]):
+                    target = targets[b, i]
+                    prob = probs[b, i]
+
+                    if curr_level in all_targets:
+                        all_targets[curr_level].append(target.item())
+                    else:
+                        all_targets[curr_level] = [target.item()]
+
+                    if levels[i] in all_probs:
+                        all_probs[curr_level].append(prob.item())
+                    else:
+                        all_probs[curr_level] = [prob.item()]
+
+    return all_targets, all_probs
+
+def optimize_placement_thresholds(placement_model, test_iter, device, num_iterations=150):
     thresholds = {}
 
-    for level in range(MAX_CHARTLEVEL):
-        threshold = MIN_THRESHOLD 
-        thresholds[level] = threshold
-        f2_score = 0
+    targets, probs = get_targets_and_probs(placement_model, test_iter, device)
 
+    for i in range(MAX_CHARTLEVEL):
+        best_threshold = 0
+        best_f2_score = 0
         last_improved = 0
 
-        # find threshold which maximizes the f2 score
-        with torch.no_grad():
-            # stop optimizing when haven't improved in the last 5 changes or F2 score cannot go higher
-            while last_improved < 5 and f2_score < 1:
-                for batch in testt_iter:
-                    pass
+        # find threshold which maximizes the f2 score; do 100 iterrations (max)
+        # stop optimizing when haven't improved in the last 5 changes or F2 score cannot go higher
+        for j in range(num_iterations):
+            if last_improved > num_iterations // 5:
+                break
+
+            curr_threshold = j / float(num_iterations)
+            curr_preds = [prob > curr_threshold for prob in probs[i]]
+            curr_f2_score = fbeta(targets[i], curr_preds, beta=2)
+
+            if curr_f2_score > best_f2_score:
+                best_f2_score = curr_f2_score
+                last_improved = 0
+                thresholds[str(i + 1)] = curr_threshold
+            else:
+                last_improved += 1
 
     return thresholds
-
