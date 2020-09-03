@@ -480,8 +480,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                                                          PLACEMENT_CRITERION, SELECTION_CRITERION,
                                                          device, writer, -1, do_condition)
 
-    # optimize placement thresholds which give highest F2 scores on the test set
-    thresholds = optimize_placement_thresholds(placement_clstm, test_iter, device)
+    # optimize placement thresholds per level which give highest F2 scores on the valid. set
+    thresholds = optimize_placement_thresholds(placement_clstm, valid_iter, device)
 
     with open(os.path.join(save_dir, THRESHOLDS_SAVE), 'w') as f:
         f.write(json.dumps(thresholds, indent=2))

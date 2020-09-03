@@ -37,7 +37,7 @@ MIN_THRESHOLD = 0.10
 MAX_THRESHOLD = 0.30
 MAX_CHARTLEVEL = 28
 
-# only used as starting default (will be optimized on test set after training for each model)
+# only used as starting default (will be optimized on valid set after training for each model)
 PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (MAX_CHARTLEVEL - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD) for level in range(1, MAX_CHARTLEVEL + 1)]
 PLACEMENT_THRESHOLDS = {str(key + 1): val for key,val in enumerate(PLACEMENT_THRESHOLDS)}
 

@@ -36,13 +36,13 @@ def predict_placements(logits, levels, lengths, get_probs=False, thresholds=None
     else:
       return predictions
 
-def get_targets_and_probs(placement_model, test_iter, device):   
+def get_targets_and_probs(placement_model, valid_iter, device):   
     placement_model.eval()
 
     # store the targets and prediction scores for the model on the test set (sep. by level)
     all_targets, all_probs = {}, {}
     with torch.no_grad():
-        for batch in test_iter:
+        for batch in valid_iter:
             audio_feats = batch['audio_feats'].to(device)
             num_audio_frames = audio_feats.size(2)
             batch_size = audio_feats.size(0)
@@ -79,15 +79,19 @@ def get_targets_and_probs(placement_model, test_iter, device):
 
     return all_targets, all_probs
 
-def optimize_placement_thresholds(placement_model, test_iter, device, num_iterations=150):
+def optimize_placement_thresholds(placement_model, valid_iter, device, num_iterations=150):
     thresholds = {}
 
-    targets, probs = get_targets_and_probs(placement_model, test_iter, device)
+    targets, probs = get_targets_and_probs(placement_model, valid_iter, device)
+    missing_levels = []
 
     for i in range(MAX_CHARTLEVEL):
-        best_threshold = 0
+        best_threshold = MIN_THRESHOLD
         best_f2_score = 0
         last_improved = 0
+
+        if not targets[i]:
+            missing_levels.append(i)
 
         # find threshold which maximizes the f2 score; do 100 iterrations (max)
         # stop optimizing when haven't improved in the last 5 changes or F2 score cannot go higher
@@ -105,5 +109,10 @@ def optimize_placement_thresholds(placement_model, test_iter, device, num_iterat
                 thresholds[str(i + 1)] = curr_threshold
             else:
                 last_improved += 1
+
+
+    # default to avg. if no chart examples for a certain level
+    for j in missing_levels:
+        thresholds[str(j + 1)] = (max(thresholds.values()) - min(thresholds.values())) / 2
 
     return thresholds
