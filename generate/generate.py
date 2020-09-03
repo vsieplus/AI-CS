@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 
 import torch
@@ -25,6 +26,7 @@ FILTERING_INDICES_PATH = 'filter_indices.json'
 # default 4 beats per measure
 BEATS_PER_MEASURE = 4
 MIN_SPLITS_PER_BEAT = 4
+HOLD_SPLIT_SKIP = 16
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -36,10 +38,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--song_name', type=str, help='song name')
     parser.add_argument('--song_artist', type=str, help='song artist')
     parser.add_argument('--display_bpm', type=float, default=125, help='determine scroll speed/display')
-    parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
+    parser.add_argument('--sampling', type=str, default='top-k', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=20, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.02, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-k', type=int, default=10, help='Sample steps from the top k candidates if using top-k')
+    parser.add_argument('-p', type=float, default=0.025, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
     parser.add_argument('-b', type=int, default=25, help='Beam size for beam search')
 
     return parser.parse_args()
@@ -104,6 +106,7 @@ def convert_splits_to_bpm(splits, bpm, blank_note):
     chart_sections = []
 
     curr_beatsplit = 0
+    hold_counter = 0
 
     for measure in range(num_measures):
         measure_start = measure * measure_length
@@ -116,21 +119,30 @@ def convert_splits_to_bpm(splits, bpm, blank_note):
 
             # check if any splits have placements that don't line up with the
             # min splits per beat (4) - increase as necessary
-            for k, note in enumerate(curr_splits):
-                if note != blank_note:
-                    # in the worst case, we need to keep all the original splits
-                    while k % split_interval != 0 and new_beatsplit < splits_per_beat:
-                        new_beatsplit += 1
-                        split_interval = math.ceil(splits_per_beat / new_beatsplit)
+            for k, steps in enumerate(curr_splits):
+                if re.search('[XMW]', steps):
+                    hold_counter = 0
+                elif re.search('H', steps):
+                    # only keep 1 of every x splits (x * 10 ms) that only has hold notes
+                    hold_counter += 1
+                    if hold_counter == HOLD_SPLIT_SKIP:
+                        hold_counter = 0
+                    else:
+                        continue
+
+                # in the worst case, we need to keep all the original splits
+                while k % split_interval != 0 and new_beatsplit < splits_per_beat:
+                    new_beatsplit += 1
+                    split_interval = math.ceil(splits_per_beat / new_beatsplit)
 
             # if different number of splits than before, start a new chart section
             if new_beatsplit  != curr_beatsplit:
                 curr_beatsplit = new_beatsplit
                 chart_sections.append([curr_beatsplit, []])
 
-            for k, note in enumerate(curr_splits):
+            for k, steps in enumerate(curr_splits):
                 if k % split_interval == 0:
-                    chart_sections[-1][-1].append(note)
+                    chart_sections[-1][-1].append(steps)
 
                     # at this point the absolute time should not have changed by much, i.e.
                     old_time = (beat_start + k) / CHART_FRAME_RATE
@@ -285,6 +297,9 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level, th
 
         placements = placements.squeeze(0)
         probs = probs.squeeze(0).tolist()
+        
+        placement_hiddens = placement_hiddens[0, (placements == 1).nonzero(as_tuple=False).flatten()]
+
 
     peaks = [(i / CHART_FRAME_RATE, prob) for i, prob in enumerate(probs)]
 
@@ -326,7 +341,8 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             placement_melframe = placement_frames[i].item()
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
-            placement_hidden = placement_hiddens[0, placement_melframe] if conditioned and i > 0 else None
+            #placement_hidden = placement_hiddens[i] if conditioned and i > 0 else None
+            placement_hidden = None
 
             if sampling == 'beam-search':
                 if i == 0:

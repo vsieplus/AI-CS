@@ -2,12 +2,12 @@
 
 python generate.py \
     --model_dir '../train/models/double/fiesta_p2_double' \
-    --audio_file 'audio/asdlr/CS269.mp3' \
-    --out_dir 'charts/asdlr/d21' \
-    --level 21 \
-    --display_bpm 200 \
+    --audio_file 'audio/bungee/bungee.mp3' \
+    --out_dir 'charts/bungee/d14' \
+    --level 14 \
+    --display_bpm 150 \
     --chart_format 'ucs' \
-    --song_name 'asdlr' \
-    --song_artist 'idk' \
-    --sampling 'top-p' \
+    --song_name 'bungee' \
+    --song_artist 'OMG' \
+    --sampling 'top-k' \
     ${@:1}
