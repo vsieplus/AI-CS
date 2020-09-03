@@ -79,7 +79,7 @@ def get_targets_and_probs(placement_model, valid_iter, device):
 
     return all_targets, all_probs
 
-def optimize_placement_thresholds(placement_model, valid_iter, device, num_iterations=150):
+def optimize_placement_thresholds(placement_model, valid_iter, device, num_iterations=300):
     thresholds = {}
 
     targets, probs = get_targets_and_probs(placement_model, valid_iter, device)
