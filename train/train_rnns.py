@@ -610,7 +610,6 @@ def main():
     train_iter = get_dataloader(dataset, train_indices)
     valid_iter = get_dataloader(dataset, valid_indices)
     test_iter = get_dataloader(dataset, test_indices)
-    breakpoint()
 
     datasets_size_str = (f'Total charts in dataset: {len(dataset)}\nTrain: {len(train_data)}, '
                          f'Valid: {len(valid_data)}, Test: {len(test_data)}')
