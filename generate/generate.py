@@ -39,9 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--sampling', type=str, default='top-p', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
     parser.add_argument('-k', type=int, default=20, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.05, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-p', type=float, default=0.02, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
     parser.add_argument('-b', type=int, default=25, help='Beam size for beam search')
-
 
     return parser.parse_args()
 
@@ -166,7 +165,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
 
         filtered_note = ''
 
-        # fill frames in between hold steps
+        # fill in frames in between hold steps
         for j, step in enumerate(curr_note):
             if step == '.' and j in curr_holds:
                 step = 'H'
@@ -191,30 +190,35 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
         for key, val in chart_attrs.items():
             chart_txt += f':{key}={val}\n'
         
-        for beatsplit, notes in chart_sections:
+        for i, (beatsplit, notes) in enumerate(chart_sections):
+            delay = 0 if i > 0 else 100
             if notes:
-                chart_txt += f':BPM={display_bpm}\n:Delay=0\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
+                chart_txt += f':BPM={display_bpm}\n:Delay={delay}\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
                 chart_txt += '\n'.join(notes) + '\n'
 
         chart_fp = audio_filename + '.ucs'
         charts_to_save.append((chart_fp, chart_txt))
 
-    ######## TODO fix ssc output ########
-    # convert steps from ucs -> ssc format + save if needed
+    # convert steps from ucs -> ssc format if needed
     if chart_format == 'ssc' or chart_format == 'both':
-        chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 
-            'MUSIC': os.path.join(out_dir, audio_filename), 'OFFSET': 0.0, 'BPMS': f'0.0={display_bpm}', 
-            'NOTEDATA': '', 'CHARTNAME': '', 'STEPSTYPE': chart_type, 'METER': str(chart_level),
-            'CREDIT': model_name, 'STOPS': '', 'DELAYS': ''
-        }
+        chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 'OFFSET': 0.0, 'BPMS': f'0.0={display_bpm}',
+        'MUSIC': audio_filename + '.' + audio_ext, 'NOTEDATA': '', 'CHARTNAME': '', 'STEPSTYPE': chart_type,
+        'METER': str(chart_level), 'CREDIT': model_name, 'STOPS': '', 'DELAYS': ''}
 
         chart_txt = ''
         for key, val in chart_attrs.items():
             chart_txt += f'#{key}:{val};\n'
 
+        # no need to encode beatsplit manually for ssc
         chart_txt += '#NOTES:\n'
-        for split in splits:
-            chart_txt += ''.join([UCS_SSC_DICT[step] for step in split]) + '\n'
+        for i, (_, notes) in enumerate(chart_sections):
+            for steps in notes:
+                chart_txt += ''.join([UCS_SSC_DICT[step] for step in steps]) + '\n'
+            
+            # separate measures by a ','
+            if i != len(chart_sections) - 1:
+                chart_txt += ',\n'
+
         chart_txt += ';\n'
 
         chart_fp = audio_filename + '.ssc'

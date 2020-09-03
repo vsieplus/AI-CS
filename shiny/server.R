@@ -111,7 +111,4 @@ server <- function(input, output, session) {
   }, height = 300, width = 600)
 }
 
-# to deploy to shinyapps.io
-# setwd("where this file is located"")
-# library(rsconnect)
-# deployApp(appdir) -> login to shinyapps
+# deployment shiny server -> aws ecs2

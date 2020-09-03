@@ -92,9 +92,10 @@ def optimize_placement_thresholds(placement_model, valid_iter, device, num_itera
 
         if not targets[i]:
             missing_levels.append(i)
+            continue
 
-        # find threshold which maximizes the f2 score; do 100 iterrations (max)
-        # stop optimizing when haven't improved in the last 5 changes or F2 score cannot go higher
+        # find threshold which maximizes the f2 score; do given # of iterations (max)
+        # stop optimizing when haven't improved in 20% of iterations or reach end
         for j in range(num_iterations):
             if last_improved > num_iterations // 5:
                 break

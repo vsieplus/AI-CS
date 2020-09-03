@@ -58,7 +58,7 @@ def calc_abs_for_beat(offset, bpms, stops, segment_lengths, beat):
     partial_segment_spb = bpm_to_spb(bpms[bpm_idx][1])
     partial_segment = partial_segment_spb * (beat - bpms[bpm_idx][0])
 
-    # Add offset to chart to sync w/music [not subtract for PIU ssc files]
+    # Add offset to chart to sync w/music
     return full_segment_total + partial_segment + offset + stop_len_cumulative
 
 def calc_note_beats_and_abs_times(offset, bpms, stops, note_data):
@@ -78,7 +78,6 @@ def calc_note_beats_and_abs_times(offset, bpms, stops, note_data):
         ppm = len(measure)
         for i, code in enumerate(measure):
             beat = measure_num * 4.0 + 4.0 * (float(i) / ppm)
-            # TODO: This could be much more efficient but is not the bottleneck for the moment.
             beat_abs = calc_abs_for_beat(offset, bpms, stops, segment_lengths, beat)
             note_beats_abs_times.append(((measure_num, ppm, i), beat, beat_abs, code))
             beat_times.append(beat_abs)
