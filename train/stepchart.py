@@ -181,12 +181,12 @@ class StepchartDataset(Dataset):
 		train_indices, valid_indices, test_indices = [], [], []
 
 		# return indices of chart_ids used in the __getitem function__
-		for j, (_, _, _, song_path) in enumerate(chart_ids):
+		for j, (_, _, _, song_path) in enumerate(self.chart_ids):
 			if song_path in split_songs['train']:
 				train_indices.append(j)
 			elif song_path in split_songs['valid']:
 				valid_indices.append(j)
-			else:
+			elif song_path in split_songs['test']:
 				test_indices.append(j)
 
 		return train_indices, valid_indices, test_indices
@@ -275,7 +275,7 @@ class StepchartDataset(Dataset):
 		if not self.songtypes or self.songtypes and attrs['songtype'] in self.songtypes:
 			for i, chart_attrs in enumerate(attrs['charts']):
 				# skip ucs/missions from ssc files
-				if re.search('(ucs|mission|quest)', chart_attrs['description']):
+				if 'description' in chart_attrs and re.search('(ucs|mission|quest)', chart_attrs['description']):
 					continue
 
 				if chart_attrs['stepstype'] != self.chart_type:

@@ -611,16 +611,16 @@ def main():
     valid_iter = get_dataloader(dataset, valid_indices)
     test_iter = get_dataloader(dataset, test_indices)
 
-    datasets_size_str = (f'Total charts in dataset: {len(dataset)}\nTrain: {len(train_data)}, '
-                         f'Valid: {len(valid_data)}, Test: {len(test_data)}')
+    datasets_size_str = (f'Total charts in dataset: {len(dataset)}\nTrain: {len(train_indices)}, '
+                         f'Valid: {len(valid_indices)}, Test: {len(test_indices)}')
     print(datasets_size_str)
 
     # save initial summary files; if finetuning, copy the old files in addition
     summary_path = os.path.join(args.save_dir, SUMMARY_SAVE)
 
     if first_dataset_load:
-        summary_json = {'train_examples': len(train_data), 'valid_examples': len(valid_data),
-                        'test_examples': len(test_data), 'conditioning': args.conditioning }
+        summary_json = {'train_examples': len(train_indices), 'valid_examples': len(valid_indices),
+                        'test_examples': len(test_indices), 'conditioning': args.conditioning }
         summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
         with open(summary_path, 'w') as f:
             f.write(json.dumps(summary_json, indent=2))
@@ -646,7 +646,6 @@ def main():
             if orig_ext == 'json':
                 shutil.copy(os.path.join(args.load_checkpoint, orig_file),
                             os.path.join(args.save_dir, orig_filename + '-original.' + orig_ext))
-
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
                args.load_checkpoint, args.fine_tune, dataset, args.conditioning)
