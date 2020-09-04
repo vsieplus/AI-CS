@@ -39,6 +39,8 @@ def collate_charts(batch):
 		input: dict of chart objects/lengths
 		output: dict of batch inputs, targets
 	"""
+	batch = list(filter(lambda x: x is not None, batch))
+
 	batch_size = len(batch)
 
 	audio_feats = []
@@ -156,8 +158,11 @@ class StepchartDataset(Dataset):
 			return self.charts[idx]
 		else:
 			chart_fp, chart_idx, permutation, _ = self.chart_ids[idx]
-			return self.load_chart(chart_fp, chart_idx, permutation)
-	
+			try:
+				return self.load_chart(chart_fp, chart_idx, permutation)
+			except ValueError:
+				return None	
+
 	# returns splits of the dataset; assumes 3 way split
 	# group songs together to avoid crossover between sets
 	def get_splits(self):
@@ -206,7 +211,11 @@ class StepchartDataset(Dataset):
 		print("Caching dataset...")
 		
 		# load once at start to compute overall vocab size, various stats + cache tensors
-		charts = [self.load_chart(fp, idx, perm, first=True) for fp, idx, perm, _ in self.chart_ids]
+		charts = []
+		for fp, idx, perm, _ in self.chart_ids:
+			chart = self.load_chart(fp, idx, perm, first=True)
+			if chart:
+				charts.append(chart)
 
 		if load_to_memory:
 			self.charts = charts
@@ -259,7 +268,11 @@ class StepchartDataset(Dataset):
 
 		song_path = os.path.join(DATA_DIR, attrs['music_fp'])
 
-		chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path], orig_filetype, permutation, self.special_tokens)
+		try:
+			chart =  Chart(attrs['charts'][chart_idx], self.songs[song_path], orig_filetype, permutation, self.special_tokens)
+		except ValueError:
+			print('Error while loading chart..., skipping')
+			return None	
 
 		if first:
 			self.vocab_size += chart.n_special_tokens
@@ -343,7 +356,9 @@ def permute_steps(steps, chart_type, permutation_type):
 
 	permutation = CHART_PERMUTATIONS[chart_type][permutation_type]
 
-	return ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
+	new_step = ''.join([steps[int(permutation[i])] for i in range(len(permutation))])
+
+	return new_step
 
 @memory.cache
 def parse_notes(notes, chart_type, permutation_type, filetype):
@@ -353,6 +368,8 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	# [# frames, # step features] - sequence of non-empty steps with associated frame numbers
 	step_sequence = []
 
+	num_arrows = 5 if chart_type == 'pump-single' else 10
+
 	# use UCS notation for less ambiguity
 	do_convert = filetype == 'ssc'
 	if do_convert:
@@ -361,6 +378,9 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	for i, (_, _, time, steps) in enumerate(notes):
 		if time < 0:
 			continue
+
+		if len(steps) != num_arrows:
+			raise ValueError('invalid steps, skipping chart...')	
 
 		step_to_check = converted_sequence[i] if do_convert else steps
 
@@ -424,8 +444,10 @@ class Chart:
 
 		self.permutation_type = permutation_type
 
-		(step_placement_frames,
-		 step_sequence) = parse_notes(chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
+		try:
+			step_placement_frames, step_sequence = parse_notes(chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
+		except ValueError:
+			raise
 
 		(self.placement_targets,
 		 self.first_frame, 

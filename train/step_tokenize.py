@@ -94,7 +94,7 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
         # if num active exceed maximum, add to end of special tokens
         if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
             curr_step = step_features_to_str(step_input[s])
-            if special_tokens:
+            if special_tokens is not None:
                 if curr_step not in special_tokens.values():
                     special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
                     special_tokens[special_idx] = curr_step

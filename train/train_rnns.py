@@ -37,9 +37,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
     parser.add_argument('--fine_tune', action='store_true', default=False, help=('Use this option to (re)train a model that'
         'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
-    parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
     parser.add_argument('--conditioning', action='store_true', default=False, help='train a model with placement model conditioning')
     parser.add_argument('--load_to_memory', action='store_true', default=False, help='Load entire dataset to memory')
+    parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
+    parser.add_argument('--gpu_num', type=int, default=0, help='which gpu number to use')
 
     args = parser.parse_args()
 
@@ -310,8 +311,7 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
             loss += criterion(logits[:, 0], step_targets[:, abs_step + 1])
 
-            total_accuracy += get_selection_accuracy(logits[:, 0], step_targets[:, abs_step + 1], 
-                                                     curr_seq_lengths, step)
+            total_accuracy += get_selection_accuracy(logits[:, 0], step_targets[:, abs_step + 1], curr_seq_lengths, step)
 
         if do_train:
             # TODO fix
@@ -370,7 +370,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
                                  dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
     selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
-    
+
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
     best_selection_valid_loss = float('inf')
@@ -571,7 +571,7 @@ def get_dataloader(dataset, indices):
 def main():
     args = parse_args()
 
-    device = torch.device('cuda' if torch.cuda.is_available() and not args.cpu else 'cpu')
+    device = torch.device('cuda:' + str(args.gpu_num) if torch.cuda.is_available() and not args.cpu else 'cpu')
     print('Device:', device)
 
     # Retrieve/prepare data
@@ -588,6 +588,7 @@ def main():
     # if loading from checkpoint, the summary file doesn't exist
     first_dataset_load = (not args.load_checkpoint or (args.load_checkpoint and args.fine_tune)
                           or (args.load_checkpoint and not os.path.isfile(os.path.join(args.load_checkpoint, SUMMARY_SAVE))))
+    print('Dataset name:', args.dataset_name)
     print('Loading dataset to memory:', args.load_to_memory)
     print('Computing dataset stats [first load]:', first_dataset_load)
     print('Fine tuning:', args.fine_tune)
@@ -646,6 +647,7 @@ def main():
             if orig_ext == 'json':
                 shutil.copy(os.path.join(args.load_checkpoint, orig_file),
                             os.path.join(args.save_dir, orig_filename + '-original.' + orig_ext))
+
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
                args.load_checkpoint, args.fine_tune, dataset, args.conditioning)
