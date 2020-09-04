@@ -40,8 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--display_bpm', type=float, default=125, help='determine scroll speed/display')
     parser.add_argument('--sampling', type=str, default='top-k', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
-    parser.add_argument('-k', type=int, default=10, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.025, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-k', type=int, default=25, help='Sample steps from the top k candidates if using top-k')
+    parser.add_argument('-p', type=float, default=0.075, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
     parser.add_argument('-b', type=int, default=25, help='Beam size for beam search')
 
     return parser.parse_args()

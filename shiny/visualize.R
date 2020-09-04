@@ -1,6 +1,7 @@
 # functions to visualize audio/chart properties
 library(dplyr)
 library(ggplot2)
+library(gganimate)
 library(grid)
 library(extrafont)
 library(magick)
@@ -52,7 +53,7 @@ addStepsAndHolds <- function(noteData, fileType = 'ucs') {
     unlist(gregexpr('[X]', s)) - 1
   })
   
-  noteData$hold_indices <- lapply(noteData$step, function(s) {
+  noteData$holdIndices <- lapply(noteData$step, function(s) {
     unlist(gregexpr('[MHW]', s)) - 1
   })
   
@@ -146,19 +147,20 @@ noteColors <- c('#c3e9d0', '#8da6e2', '#6184d8', '#1e1014')
 icon_axis <- function(arrows, angle) {
   structure(
     list(img=noteIcons[1:arrows], angle=angle),
-    class = c("element_custom", "element_blank", "element_text", "element")
+         class = c("element_custom", "element_blank", "element_text", "element")
   )
 }
 
 element_grob.element_custom <- function(element, x, ...)  {
   stopifnot(length(x) == length(element$img))
   tag <- names(element$img)
+
   # add vertical padding to leave space
   g1 <- textGrob(label = '', x=x, rot = element$angle, vjust=0.6)
   g2 <- mapply(rasterGrob, x=x, image=element$img[tag], 
-               MoreArgs=list(vjust=0.5, interpolate=FALSE,
-                             height=unit(7 ,"mm")),
-               SIMPLIFY=FALSE)
+              MoreArgs=list(vjust=0.5, interpolate=FALSE,
+                            height=unit(7 ,"mm")),
+              SIMPLIFY=FALSE)
   
   gTree(children=do.call(gList, c(g2, list(g1))), cl="custom_axis")
 }
@@ -170,37 +172,49 @@ grobHeight.custom_axis = heightDetails.custom_axis = function(x, ...) {
 
 ## END #####
 
-# produce a plot of step chart section (i.e. a still-shot of a stepchart section)
+# produce a horizontal plot of step chart section (i.e. a still-shot of a stepchart section)
 # noteData should be an m x 2 df, with observations of time/step
 plotChartSection <- function(noteData, startTime = 15.0, endTime = 25.0, epsilon = 1e-5) {
   num_arrows <- nchar(as.character(noteData[1, 'step']))
   noteData <- filter(noteData, time >= startTime & time <= endTime)
   
   arrows <- seq(0, num_arrows - 1)
-  arrow_positions <- lapply(arrows, function(a) {
-    sapply(noteData$step, function(s) a %in% s)
+  stepPositions <- lapply(arrows, function(a) {
+    sapply(noteData$stepIndices, function(s) a %in% s)
   })
   
-  names(arrow_positions) <- arrows
-  noteData <- cbind(noteData, arrow_positions)
+  holdPositions <- lapply(arrows, function(a) {
+    sapply(noteData$holdIndices, function(s) a %in% s)
+  })
+
+  names(stepPositions) <- paste0(arrows, '-step')
+  names(holdPositions) <- paste0(arrows, '-hold')
+
+  noteData <- cbind(noteData, stepPositions)
   
-  # list of arrow ids with a note for each timestep
+  # for each timestep, find the list of arrow ids [0-num_arrows-1] with a note
   timeNotes <- lapply(noteData$time, function(time) {
-    which(sapply(names(arrow_positions), function(a) {
+    which(sapply(names(stepPositions), function(a) {
       noteData[abs(noteData$time - time) < epsilon, a]
-    })) - 1
+    }))
   })
+
+  names(timeNotes) = round(noteData$time,3)
+  timeNotes <- timeNotes[which(sapply(timeNotes, function(t) length(t) > 0))]
   
-  noteTimes <- data.frame(time = sapply(noteData$time, function(t) {
-    rep(t, length(timeNotes[[which(abs(noteData$time - t) < epsilon)]]))
+  # add one data point for each time/index pair
+  noteTimes <- data.frame(time = sapply(names(timeNotes), function(t) {
+    rep(as.numeric(t), length(timeNotes[[t]]))
   }), notes = unlist(timeNotes))
   
   # time vs notes
-  ggplot2::ggplot(noteTimes, aes(x = notes, y = time)) +
-    geom_point() + 
-    theme(axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
-          axis.title.x = element_blank()) +
+  ggplot2::ggplot(noteTimes, aes(y = time, x = notes)) +
+    geom_point(color = 'white') + 
+    scale_x_continuous(limits = c(0, length(arrows) - 1), breaks = seq(0, length(arrows) - 1, 1)) +
     scale_y_continuous(trans = 'reverse') +
+    theme(axis.text.x = icon_axis(arrows = num_arrows, angle = 0),
+          axis.title.x = element_blank(),
+          axis.text.y = element_text(color = 'white')) +
     chartTheme
 }
 
@@ -224,19 +238,19 @@ getArrowDistribution <- function(noteData, num_arrows) {
   
   arrows$jumps <- filterNotes(arrows$arrow, function(a) {
     sum(sapply(noteData$stepIndices, function(s) length(s) == 2 & a %in% s) & 
-        sapply(noteData$hold_indices, function(h) all(h == -2)))
+        sapply(noteData$holdIndices, function(h) all(h == -2)))
   })
   
   arrows$brackets <- filterNotes(arrows$arrow, function(a) {
     sum(sapply(noteData$stepIndices, function(s) length(s) >= 3 & a %in% s) | 
-       (sapply(noteData$hold_indices, function(h) all(h != -2)) & 
+       (sapply(noteData$holdIndices, function(h) all(h != -2)) & 
         sapply(noteData$stepIndices, function(s) {
         length(s) == 2 & a %in% s 
        })))
   })
   
   arrows$holds <- sapply(arrows$arrow, function(a) { 
-    sum(sapply(noteData$hold_indices, function(p) a %in% p))
+    sum(sapply(noteData$holdIndices, function(p) a %in% p))
   })
   
   arrows

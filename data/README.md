@@ -37,13 +37,6 @@ It is possible to specify other parameters such as specific song titles and a ra
 published. Use the `-h` option for more info. This script will prompt you for your PIU account
 login information, as an account is required to download UCS files from their website.
 
-Note that the first time scraping/working with ucs files, you should first run 
-
-```ucs_scrape_meta.py --scrape_meta --download```
-
-to first scrape some general metadata and download the audio and templates from the UCS site. This will
-create a placeholder pack with chart under `dataset/raw/00-UCS-BASE`. These files will be referred to for downloaded ucs charts in order to avoid duplication of audio files.
-
 ```python
 python scrape_ucs.py \
     --pack_name='pack_name'
@@ -54,6 +47,15 @@ python scrape_ucs.py \
 ```
 
 This will create a custom ucs 'pack' under `dataset/raw/pack_name`.
+
+
+Note that the first time scraping/working with ucs files, you should first run 
+
+```ucs_scrape_meta.py --scrape_meta --download```
+
+to first scrape some general metadata and download the audio and templates from the UCS site. This will
+create a placeholder pack with chart under `dataset/raw/00-UCS-BASE`. These files will be referred to for 
+downloaded ucs charts in order to avoid duplication of audio files.
 
 You may also add your own `.ucs` files. However, if it is a plain `.ucs` file as
 created in StepEdit lite, you will need to enter some additional metadata about the charts.
@@ -90,10 +92,13 @@ you may rerun the script, which will overwrite old json files with new ones.
 ## Creating a dataset
 
 To specify a custom subset of charts you can create a dataset, comprised of potentially multiple packs.
-This is done by calling `processing/build_dataset.py --dataset_name=name` which takes various filtering 
-parameters, which include difficulty levels, chart type (single/double), song type (arcade/remix/...) 
-and more. You may customize these parameters to build your own datasets (call `-h` for more details). This 
-script will ask you which packs to choose songs and charts from as the initial layer of filtering.
+This is done by calling 
+
+`processing/build_dataset.py --dataset_name=name --chart_type=type` 
+
+where `chart_type` is one of `pump-single` or `pump-double` (maybe co-op in the future). The script also takes various 
+filtering parameters, which include difficulty levels, song type (arcade/remix/...), and more. You may customize these 
+parameters to build your own datasets (call `-h` for more details). This script will ask you which packs to choose songs and charts from currently under `dataset/json/` as the initial layer of filtering.
 
 The resulting file will be stored in `dataset/subsets/name.json` and will act as metadata
 to be used when training is initiated for a particular model (see `train/`).
