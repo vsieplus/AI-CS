@@ -94,19 +94,17 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
         # if num active exceed maximum, add to end of special tokens
         if num_active_arrows > MAX_ACTIVE_ARROWS[chart_type]:
             curr_step = step_features_to_str(step_input[s])
-            if special_tokens is not None:
-                if curr_step not in special_tokens.values():
-                    special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
-                    special_tokens[special_idx] = curr_step
-                    n_special_tokens += 1
-                else:
-                    for k,v in special_tokens.items():
-                        if v == curr_step:
-                            special_idx = k
-                            break
-                targets[s] = int(special_idx)
+            if curr_step not in special_tokens.values():
+                special_idx = SELECTION_VOCAB_SIZES[chart_type] + len(special_tokens)
+                special_tokens[special_idx] = curr_step
+                n_special_tokens += 1
             else:
-                targets[s] = int(9999999)
+                for k,v in special_tokens.items():
+                    if v == curr_step:
+                        special_idx = k
+                        break
+            
+            targets[s] = int(special_idx)
             continue
 
         for num_active in range(num_active_arrows):
@@ -255,7 +253,7 @@ def get_state_indices(arrow_idx, arrow_states, chart_type):
                     note[combination[i]] = '.'
 
     step_tensors = sequence_to_tensor(list(step_states))
-    step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, None)
+    step_indices, _ = step_sequence_to_targets(step_tensors, chart_type, {})
 
     step_indices = [index.item() for index in step_indices]
 
