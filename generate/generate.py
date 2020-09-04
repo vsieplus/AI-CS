@@ -26,7 +26,7 @@ FILTERING_INDICES_PATH = 'filter_indices.json'
 # default 4 beats per measure
 BEATS_PER_MEASURE = 4
 MIN_SPLITS_PER_BEAT = 4
-HOLD_SPLIT_SKIP = 16
+HOLD_SPLIT_SKIP = 8
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
