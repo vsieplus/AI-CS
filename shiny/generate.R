@@ -8,7 +8,6 @@ use_python('/home/vsie/anaconda3/bin/python3.8')
 use_condaenv('aics')
 
 generate <- import_from_path('generate', path = file.path('..', 'generate'))
-hyper <- import_from_path('hyper', path = file.path('..', 'train'))
 
 CHART_LEVELS <- list('single' = 26, 'double' = 28)
 
@@ -31,12 +30,11 @@ getModelSummary <- function(modelPath, as_str) {
               sprintf('Hidden size: %0.f', modelSummary[['hidden_size']]),
               sprintf('Selection hidden weight: %0.2f<br/>', modelSummary[['selection_hidden_wt']]),
               sprintf('Dataset name: %s<br/>', modelSummary[['name']]),
-              sprintf('Packs: %s', cat(modelSummary[['packs']])),
-              sprintf('Song types: %s', cat(modelSummary[['song_types']])),
+              sprintf('Song types: %s', paste(modelSummary[['song_types']], collapse = ', ')),
               sprintf('Total unique songs: %0.f', modelSummary[['unique_songs']]),
               sprintf('Total audio hours: %0.4f<br/>', modelSummary[['audio_hours']]),
               sprintf('Chart type: %s', modelSummary[['chart_type']]),
-              sprintf('Chart permutations: %s', cat(modelSummary[['permutations']])),
+              sprintf('Chart permutations: %s', paste(modelSummary[['permutations']], collapse = ', ')),
               sprintf('Total unique charts: %s', format(modelSummary[['unique_charts']], big.mark = ',', trim = T)),
               sprintf('Minimum chart level: %0.f', modelSummary[['min_level']]),
               sprintf('Maximum chart level: %0.f', modelSummary[['max_level']]),
@@ -59,7 +57,7 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   if(sampleStrat == 'top-k') {
     sampleDescription <- sprintf("Top-k sampling with k = %0.f", topkK)
   } else if(sampleStrat == 'top-p') {
-    sampleDescription <- sprintf("Top-p sampling with p = %0.f", toppP)
+    sampleDescription <- sprintf("Top-p sampling with p = %0.4f", toppP)
   } else if(sampleStrat == 'beam-search') {
     sampleDescription <- sprintf("Beam-search with beam size b = %0.f", beamSize)
   } else {
@@ -117,8 +115,8 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
     updateProgress(value = 0.3, detail = 'Generating step placements')
   }
   
-  chartData[['threshold']] <- hyper$PLACEMENT_THRESHOLDS[as.integer(level - 1)]
-
+  chartData[['threshold']] <- thresholds[[as.character(level)]]
+ 
   chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
                                                   as.integer(level), thresholds, inputSize)
 

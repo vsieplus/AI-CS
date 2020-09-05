@@ -49,7 +49,7 @@ ui <- navbarPage(
         side_by_side(radioButtons('sample_strat', 'Decoding strategy', choices = SAMPLING_CHOICES)),
         
         side_by_side(span(
-          numericInput('topp_p', 'p', min = 0, max = 1, value = 0.05, width = '120px'),
+          numericInput('topp_p', 'p', min = 0, max = 1, step = 0.01, value = 0.05, width = '120px'),
           numericInput('beam_size', 'beam', min = 0, max = 1024, value = 10, width = '120px'),
           checkboxGroupInput('save_formats', 'Output formats:', choices = CHART_FORMATS, inline = TRUE)
         ), second = T),
@@ -72,23 +72,16 @@ ui <- navbarPage(
            h3('Audio sample spectrogram'), h3(),
            actionButton('play_audio', 'Play audio clip', icon = icon('play')),
            plotOutput('spectrogram_plot'),
-           # sliderInput (clip location) ?
            uiOutput('audio'),
-           plotOutput('model_peak_picking_plot')
+           plotOutput('model_peak_picking_plot'))
         ),
 
         fluidRow(
           # step chart/distribution visualization,
-          column(7, plotOutput('chart_distribution_plot')),
-          column(5, plotOutput('chart_section_plot')))
+          column(5, offset = 4, plotOutput('chart_distribution_plot'))
         )
-        
       )
     )
   ),
-  
-  
-  tabPanel('About',
-           includeHTML('html/about.html')
-  )
+  tabPanel('About', includeHTML('html/about.html'))
 )

@@ -6,6 +6,8 @@ library(shiny)
 source('generate.R', local = TRUE)
 source('visualize.R', local = TRUE)
 
+# TODO clear old files when new audio uploaded/chart generated
+
 server <- function(input, output, session) {
   chartData <- NULL
   
@@ -41,6 +43,7 @@ server <- function(input, output, session) {
   # store model outputs + the generated notes/times
   chartData <- eventReactive(input$generate_chart, {
     req(input$audio_file)
+    req(input$song_title)
 
     # track generation progress
     progress <- shiny::Progress$new()
@@ -96,15 +99,15 @@ server <- function(input, output, session) {
     getGenerationSummary(chartData())
   })
   
-  # produce model peak-picking plot
+  # produce model peak-picking plot (animated)
   output$model_peak_picking_plot <- renderPlot({
     plotPeakPicking(chartData()[['peaks']], chartData()[['threshold']])
   }, height = 360, width = 600)
   
   # produce chart visualizations
-  output$chart_section_plot <- renderPlot({
-    plotChartSection(chartData()[['notes_df']])
-  }, height = 300, width = 600)
+  #output$chart_section_plot <- renderPlot({
+  #  plotChartSection(chartData()[['notes_df']])
+  #}, height = 300, width = 600)
   
   output$chart_distribution_plot <- renderPlot({
     plotChartDistribution(chartData()[['notes_df']])

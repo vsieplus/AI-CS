@@ -1,7 +1,6 @@
 # functions to visualize audio/chart properties
 library(dplyr)
 library(ggplot2)
-library(gganimate)
 library(grid)
 library(extrafont)
 library(magick)
@@ -123,8 +122,8 @@ plotPeakPicking <- function(modelPeaks, threshold, startTime = 15.0, endTime = 2
                       prob = sapply(modelPeaks, function(x) x[[2]]))
   peaks <- filter(peaks, time >= startTime & time <= endTime)
   
-  ggplot(peaks) +
-    geom_line(aes(x = time, y = prob), color='white') + 
+  ggplot(peaks, aes(x = time, y = prob)) +
+    geom_line(color='white') + 
     geom_hline(yintercept = threshold, color = 'white', size = 1) +
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.1), expand = c(0,.01)) +
     scale_x_continuous(limits = c(startTime, endTime), breaks = seq(startTime, endTime, 1), expand = c(0,0)) +
