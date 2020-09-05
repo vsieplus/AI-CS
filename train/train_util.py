@@ -85,12 +85,12 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
     clstm_path = os.path.join(save_dir, CLSTM_SAVE)
     srnn_path = os.path.join(save_dir, SRNN_SAVE)
     
-    if os.path.isfile(clstm_path):
+    if os.path.isfile(clstm_path) and placement_clstm is not None:
         placement_clstm.load_state_dict(torch.load(clstm_path, map_location=device))
     else:
         print(f'No saved {CLSTM_SAVE} file found in {save_dir}, starting from base model')
 
-    if os.path.isfile(srnn_path):
+    if os.path.isfile(srnn_path) and selection_rnn is not None:
         selection_rnn.load_state_dict(torch.load(srnn_path, map_location=device))
     else:
         print(f'No saved {SRNN_SAVE} file found in {save_dir}, starting from base model')
