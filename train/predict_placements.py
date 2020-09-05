@@ -17,7 +17,7 @@ from tqdm import tqdm
 from arrow_rnns import PlacementCLSTM
 from hyper import PLACEMENT_THRESHOLDS, MAX_CHARTLEVEL, MIN_THRESHOLD, SUMMARY_SAVE, THRESHOLDS_SAVE
 from stepchart import StepchartDataset, collate_charts
-from util import load_save
+from train_util import load_save
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
@@ -57,7 +57,7 @@ def get_targets_and_probs(placement_model, valid_iter, device):
     # store the targets and prediction scores for the model on the test set (sep. by level)
     all_targets, all_probs = {}, {}
     with torch.no_grad():
-        for batch in valid_iter:
+        for batch in tqdm(valid_iter):
             audio_feats = batch['audio_feats'].to(device)
             num_audio_frames = audio_feats.size(2)
             batch_size = audio_feats.size(0)
@@ -83,24 +83,26 @@ def get_targets_and_probs(placement_model, valid_iter, device):
                     prob = probs[b, i]
 
                     if curr_level in all_targets:
-                        all_targets[curr_level].append(target)
+                        all_targets[curr_level].append(target.item())
                     else:
-                        all_targets[curr_level] = [target]
+                        all_targets[curr_level] = [target.item()]
 
-                    if levels[i] in all_probs:
-                        all_probs[curr_level].append(prob)
+                    if levels[b] in all_probs:
+                        all_probs[curr_level].append(prob.item())
                     else:
-                        all_probs[curr_level] = [prob]
+                        all_probs[curr_level] = [prob.item()]
 
     return all_targets, all_probs
 
 def optimize_placement_thresholds(placement_model, valid_iter, device=torch.device('cpu'), num_iterations=300):
     thresholds = {}
 
+    print('Obtaining validation targets and prediction scores')
     targets, probs = get_targets_and_probs(placement_model, valid_iter, device)
     missing_levels = []
 
-    for i in range(MAX_CHARTLEVEL):
+    print('Now optimizing thresholds')
+    for i in trange(MAX_CHARTLEVEL):
         best_threshold = MIN_THRESHOLD
         best_f2_score = 0
         last_improved = 0
@@ -145,7 +147,7 @@ if __name__ == '__main__':
 
     print(f'Loading dataset {args.dataset_name}')
 
-    dataset_path = os.path.join(DATASETS_DIR, args.dataset_name)
+    dataset_path = os.path.join(DATASETS_DIR, args.dataset_name + '.json')
     dataset = StepchartDataset(dataset_path, load_to_memory=False, first_dataset_load=False, special_tokens=None) 
 
     _, valid_indices, _ = dataset.get_splits()
@@ -159,7 +161,7 @@ if __name__ == '__main__':
                                      model_summary['placement_kernels'], model_summary['placement_pool_kernel'],
                                      model_summary['placement_pool_stride'], model_summary['placement_lstm_layers'],
                                      model_summary['placement_input_size'], model_summary['hidden_size']).to(device)
-    load_save(args.model_dir, fine_tune=True, placement_clstm=placement_model, selection_rnn=None, device)
+    load_save(args.model_dir, fine_tune=True, placement_clstm=placement_model, selection_rnn=None, device=device)
 
     print('Optimizing thresholds')
     thresholds = optimize_placement_thresholds(placement_model, valid_iter, device)
