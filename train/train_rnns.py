@@ -481,12 +481,6 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                                                          PLACEMENT_CRITERION, SELECTION_CRITERION,
                                                          device, writer, -1, do_condition)
 
-    # optimize placement thresholds per level which give highest F2 scores on the valid. set
-    thresholds = optimize_placement_thresholds(placement_clstm, valid_iter)
-
-    with open(os.path.join(save_dir, THRESHOLDS_SAVE), 'w') as f:
-        f.write(json.dumps(thresholds, indent=2))
-
     # save training summary stats to json file
     # load initial summary
     with open(os.path.join(save_dir, SUMMARY_SAVE), 'r') as f:
@@ -504,6 +498,13 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
     with open(os.path.join(save_dir, SUMMARY_SAVE), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
+
+    # optimize placement thresholds per level (range) which give highest F2 scores on the valid. set
+    thresholds = optimize_placement_thresholds(placement_clstm, valid_iter, device)
+
+    with open(os.path.join(save_dir, THRESHOLDS_SAVE), 'w') as f:
+        f.write(json.dumps(thresholds, indent=2))
+
 
 def log_training_stats(writer, dataset, summary_json):
     if dataset.computed_stats:

@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from arrow_rnns import PlacementCLSTM
 from hyper import PLACEMENT_THRESHOLDS, MAX_CHARTLEVEL, MIN_THRESHOLD, SUMMARY_SAVE, THRESHOLDS_SAVE
@@ -21,7 +21,8 @@ from train_util import load_save
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
-OPTIMIZATION_BATCH_SIZE = 4
+OPTIMIZATION_BATCH_SIZE = 8
+OPTIMIZATION_RANGE = 4
 
 def predict_placements(logits, levels, lengths, get_probs=False, thresholds=None):
     """
@@ -80,7 +81,7 @@ def get_targets_and_probs(placement_model, valid_iter, device):
                 curr_level = levels[b]
                 for i in range(audio_lengths[b]):
                     target = targets[b, i]
-                    prob = probs[b, i]
+                    prob = probs[b, i, 1]
 
                     if curr_level in all_targets:
                         all_targets[curr_level].append(target.item())
@@ -102,36 +103,32 @@ def optimize_placement_thresholds(placement_model, valid_iter, device=torch.devi
     missing_levels = []
 
     print('Now optimizing thresholds')
-    for i in trange(MAX_CHARTLEVEL):
-        best_threshold = MIN_THRESHOLD
-        best_f2_score = 0
+    for i in trange(MAX_CHARTLEVEL // OPTIMIZATION_RANGE):
+        best_f2_score = -1
         last_improved = 0
 
-        if not targets[i]:
-            missing_levels.append(i)
+        curr_levels = range(i * OPTIMIZATION_RANGE, i * OPTIMIZATION_RANGE + OPTIMIZATION_RANGE)
+        curr_probs, curr_targets = [], []
+        for level in curr_levels:
+            thresholds[str(level + 1)] = MIN_THRESHOLD
+            if level in probs and level in targets:
+                curr_probs.extend(probs[level])
+                curr_targets.extend(targets[level])
+
+        if not curr_probs or not curr_targets:
             continue
 
         # find threshold which maximizes the f2 score; do given # of iterations (max)
-        # stop optimizing when haven't improved in 20% of iterations or reach end
         for j in range(num_iterations):
-            if last_improved > num_iterations // 5:
-                break
-
             curr_threshold = j / float(num_iterations)
-            curr_preds = [prob > curr_threshold for prob in probs[i]]
-            curr_f2_score = fbeta(targets[i], curr_preds, beta=2)
+            curr_preds = [prob > curr_threshold for prob in curr_probs]
+            curr_f2_score = fbeta_score(curr_targets, curr_preds, beta=2, pos_label=1)
 
             if curr_f2_score > best_f2_score:
                 best_f2_score = curr_f2_score
                 last_improved = 0
-                thresholds[str(i + 1)] = curr_threshold
-            else:
-                last_improved += 1
-
-
-    # default to avg. if no chart examples for a certain level
-    for j in missing_levels:
-        thresholds[str(j + 1)] = sum(thresholds.values()) / len(thresholds)
+                for level in curr_levels:
+                    thresholds[str(level + 1)] = curr_threshold
 
     return thresholds
 
@@ -143,7 +140,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    device = torch.device('cpu') 
+    device = torch.device('cuda') 
 
     print(f'Loading dataset {args.dataset_name}')
 
