@@ -10,8 +10,6 @@ data/dataset/subsets/*
 *.wav
 *.mp4
 train/models/*
-shiny/www/*
-shiny/models/*
 shiny/test/*
 generate/audio/*
 generate/charts/*
