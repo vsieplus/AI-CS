@@ -8,10 +8,10 @@ library(reshape2)
 library(av)
 
 ## Chart Processing (util functions) ####################################
-library(reticulate)
-use_python('/home/vsie/anaconda3/bin/python3.8')
-use_condaenv('aics')
-parse <- reticulate::import_from_path('parse', path = file.path('..', 'data', 'processing'))
+# library(reticulate)
+# use_python('/home/vsie/anaconda3/bin/python3.8')
+# use_condaenv('aics')
+# parse <- reticulate::import_from_path('parse', path = file.path('..', 'data', 'processing'))
 
 source('util.R', local = TRUE)
 
@@ -59,48 +59,48 @@ addStepsAndHolds <- function(noteData, fileType = 'ucs') {
   noteData
 }
 
-# returns a df with two columns, one row per time/step in the chart
-getNoteData <- function(chartPath) {
-  chartName <- basename(chartPath)
-  fileType <- strsplit(chartName, '.', fixed = TRUE)[[1]][-1]
+# # returns a df with two columns, one row per time/step in the chart
+# getNoteData <- function(chartPath) {
+#   chartName <- basename(chartPath)
+#   fileType <- strsplit(chartName, '.', fixed = TRUE)[[1]][-1]
   
-  if(file.exists(chartPath)) {
-    chartTxt <- gsub('\r', '', readChar(chartPath, file.info(chartPath)$size))
+#   if(file.exists(chartPath)) {
+#     chartTxt <- gsub('\r', '', readChar(chartPath, file.info(chartPath)$size))
     
-    # list of length: # chart frames, each elem has the frame's
-    # (beat phase [measure, beat split], abs. beat, time, notes)
-    # ex) notes[[100]][[3]] = the time (s) at which the 100th frame occurs
-    if(fileType == 'ucs') {
-      notes <- parse$ucs_notes_parser(chartTxt)
-    } else if(fileType == 'ssc') {
-      notes <- parse$parse_ssc_txt(chartTxt)
+#     # list of length: # chart frames, each elem has the frame's
+#     # (beat phase [measure, beat split], abs. beat, time, notes)
+#     # ex) notes[[100]][[3]] = the time (s) at which the 100th frame occurs
+#     if(fileType == 'ucs') {
+#       notes <- parse$ucs_notes_parser(chartTxt)
+#     } else if(fileType == 'ssc') {
+#       notes <- parse$parse_ssc_txt(chartTxt)
       
-      # extract 3rd/4th value (time/note) of each list element
-      # restrict notes to display to start/end time
-      charts <- notes[['charts']]
+#       # extract 3rd/4th value (time/note) of each list element
+#       # restrict notes to display to start/end time
+#       charts <- notes[['charts']]
       
-      # ask user to choose which chart in the ssc file if > 1
-      if(length(charts) > 1) {
-        chartIdx <- menu(sapply(charts, function(c) {
-            paste0(strsplit(c[['stepstype']], '-')[[1]][-1], c[['meter']])
-          }), title = "Choose a chart")
-      } else {
-        chartIdx <- 1
-      }
+#       # ask user to choose which chart in the ssc file if > 1
+#       if(length(charts) > 1) {
+#         chartIdx <- menu(sapply(charts, function(c) {
+#             paste0(strsplit(c[['stepstype']], '-')[[1]][-1], c[['meter']])
+#           }), title = "Choose a chart")
+#       } else {
+#         chartIdx <- 1
+#       }
       
-      notes <- charts[[chartIdx]][['notes']]
-    }
+#       notes <- charts[[chartIdx]][['notes']]
+#     }
     
-    times <- unlist(sapply(notes, '[', 3))
-    steps <- unlist(sapply(notes, '[', 4))
+#     times <- unlist(sapply(notes, '[', 3))
+#     steps <- unlist(sapply(notes, '[', 4))
     
-    noteData <- data.frame(time = times, step = steps, stringsAsFactors = TRUE)
-    addStepsAndHolds(noteData, fileType)
-  } else {
-    print(sprintf('Chart file %s does not exist', chartPath))
-    return(NULL)
-  }
-}
+#     noteData <- data.frame(time = times, step = steps, stringsAsFactors = TRUE)
+#     addStepsAndHolds(noteData, fileType)
+#   } else {
+#     print(sprintf('Chart file %s does not exist', chartPath))
+#     return(NULL)
+#   }
+# }
 
 #################################################################
 ## CHART/Model VISUALIZATION ####################################

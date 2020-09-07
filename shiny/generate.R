@@ -7,7 +7,7 @@ library(reticulate)
 use_python('/home/vsie/anaconda3/bin/python3.8')
 use_condaenv('aics')
 
-generate <- import_from_path('generate', path = file.path('..', 'generate'))
+generate <- import_from_path('generate', path = file.path('pycopies'))
 
 CHART_LEVELS <- list('single' = 26, 'double' = 28)
 
