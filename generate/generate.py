@@ -138,7 +138,8 @@ def convert_splits_to_bpm(splits, bpm, blank_note):
             # if different number of splits than before, start a new chart section
             if new_beatsplit  != curr_beatsplit:
                 curr_beatsplit = new_beatsplit
-                chart_sections.append([curr_beatsplit, []])
+                abs_measure = measure + (beat / BEATS_PER_MEASURE) + ((k + 1) / splits_per_beat)
+                chart_sections.append([curr_beatsplit, abs_measure, []])
 
             for k, steps in enumerate(curr_splits):
                 if k % split_interval == 0:
@@ -202,7 +203,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
         for key, val in chart_attrs.items():
             chart_txt += f':{key}={val}\n'
         
-        for i, (beatsplit, notes) in enumerate(chart_sections):
+        for i, (beatsplit, _, notes) in enumerate(chart_sections):
             delay = 0 if i > 0 else 100
             if notes:
                 chart_txt += f':BPM={display_bpm}\n:Delay={delay}\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
@@ -215,23 +216,36 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
     if chart_format == 'ssc' or chart_format == 'both':
         chart_attrs = {'TITLE': song_name, 'ARTIST': song_name, 'OFFSET': 0.0, 'BPMS': f'0.0={display_bpm}',
         'MUSIC': audio_filename + '.' + audio_ext, 'NOTEDATA': '', 'CHARTNAME': '', 'STEPSTYPE': chart_type,
-        'METER': str(chart_level), 'CREDIT': model_name, 'STOPS': '', 'DELAYS': ''}
+        'METER': str(chart_level), 'CREDIT': model_name, 'STOPS': '', 'DELAYS': '', 
+        'TIMESIGNATURES': f'0.0=4={BEATS_PER_MEASURE}'}
 
         chart_txt = ''
         for key, val in chart_attrs.items():
             chart_txt += f'#{key}:{val};\n'
 
         # no need to encode beatsplit manually for ssc
-        chart_txt += '#NOTES:\n'
-        for i, (_, notes) in enumerate(chart_sections):
+        notes_txt = '#NOTES:\n'
+        tickcounts = [] # store abs. measure number + beatsplit for each section
+        for i, (beatsplit, abs_measure, notes) in enumerate(chart_sections):
             for steps in notes:
-                chart_txt += ''.join([UCS_SSC_DICT[step] for step in steps]) + '\n'
+                notes_txt += ''.join([UCS_SSC_DICT[step] for step in steps]) + '\n'
             
             # separate measures by a ','
             if i != len(chart_sections) - 1:
-                chart_txt += ',\n'
+                notes_txt += ',\n'
 
-        chart_txt += ';\n'
+            tickcounts.append((abs_measure, beatsplit))
+
+        notes_txt += ';\n'
+
+        chart_txt += '#TICKCOUNTS:\n'
+        for i, (abs_measure, beatsplit) in enumerate(tickcounts):
+            chart_txt += f'{abs_measure}={beatsplit}\n'
+
+            if i != len(tickcounts) - 1:
+                chart_txt += ','
+        
+        chart_txt += ';\n' + notes_txt
 
         chart_fp = audio_filename + '.ssc'
         charts_to_save.append((chart_fp, chart_txt))
