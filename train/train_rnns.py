@@ -454,20 +454,22 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                 better_placement = placement_valid_loss < best_placement_valid_loss
                 better_selection = selection_valid_loss < best_selection_valid_loss
 
-                if better_placement:
-                    best_placement_valid_loss = placement_valid_loss
-                    save_model(placement_clstm, save_dir, CLSTM_SAVE)
-                else:
-                    print("Placement validation loss increased, stopping CLSTM training")
-                    train_clstm = False
+                if train_clstm:
+                    if better_placement:
+                        best_placement_valid_loss = placement_valid_loss
+                        save_model(placement_clstm, save_dir, CLSTM_SAVE)
+                    else:
+                        print("Placement validation loss increased, stopping CLSTM training")
+                        train_clstm = False
 
-                if better_selection:
-                    best_selection_valid_loss = selection_valid_loss
-                    save_model(selection_rnn, save_dir, SRNN_SAVE)
-                else:
-                    # cease training the placement model
-                    print("Placement validation loss increased, stopping SRNN training")
-                    train_srnn = False
+                if train_srnn:
+                    if better_selection:
+                        best_selection_valid_loss = selection_valid_loss
+                        save_model(selection_rnn, save_dir, SRNN_SAVE)
+                    else:
+                        # cease training the placement model
+                        print("Placement validation loss increased, stopping SRNN training")
+                        train_srnn = False
 
                 if not better_placement and not better_selection:
                     print("Both validation losses have increased. Stopping early..")
