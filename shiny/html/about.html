@@ -3,7 +3,7 @@
     <p>
       Thanks for visiting AI Custom Step! This project was inspired by
       <a href='https://arxiv.org/abs/1703.06891' target='_blank'>Dance Dance Convolution</a> (Donahue et. al, 2017),
-      and is an extension and adaptation of that project to PIU. Many things were kept similar, but
+      and is an extension and adaptation of that project to Pump it Up. Many things were kept similar, but
       many modifications were also added. The linked paper has a great explanation of the approach taken
       towards step chart generation. If you're interested in learning more about this specific project and its implementation,
       you can check out the repository on <a href='https://github.com/vsieplus/AI-CS' target='_blank'>Github</a>.
@@ -20,13 +20,13 @@
             <li><strong>beam-search</strong>: at each timestep, keep the <i>b</i> most likely sequences from expanding all possibilities
                 with the <i>b</i> most likely sequences from the previous timestep; at the end choose the one with the best score</li>
             <li><strong>greedy</strong>: pick the sample with the highest probability</li>
-            <li><strong>multinom</strong>: randomly sample from the unfiltered distribution</li>
         </ul>
 
         From experimentation, top-p with <i>p</i> = 0.05-0.1 and top-k with <i>k</i> = 10-30 seem to give the most
-        consistent and fluent sequence generations. Beam search produces less consistent sequences, but can still be okay. Note that
-        beam search will take longer to run due to the more extensive search algorithm it uses. Greedy sampling tends
-        to degenerate to repetition very quickly, while multinom may frequently sample unlikely steps. <br/><br/>
+        consistent and fluent sequence generations. Slightly higher values of p and k tend to work better for doubles than
+        for singles. Beam search produces less consistent sequences, but can still be okay. Note that beam search will take 
+        longer to run due to the more extensive search algorithm it uses. Greedy sampling tends to degenerate to repetition 
+        very quickly, often generating the same pattern over and over. <br/><br/>
 
         If we make a comparison to how step makers select steps, it seems that top-p, top-k, and beam-search are 
         all reasonable approximations. At any given frame in the chart, our choice for the next step is often 
@@ -37,8 +37,7 @@
         Futhermore, the way in which we restrict these choices may also depend on what that previous arrow was. For example,
         in doubles, a step in the middle 4 gives many more viable options for the next step(s) then say one on the outer 4.
         This suggests that the strategy for step selection may be closer top-p sampling rather than top-k or beam-search,
-        as the number of candidates to sample from may change depending on the state. Such restrictions however seem not to be 
-        as relevant for singles, due to the reduced set of step combinations.  
+        as the number of candidates to sample from may change depending on the previous state.
     </p>
 
     <h3>FAQ</h3>
@@ -49,21 +48,19 @@
                 timing or placement of the steps, but rather only affects the chart's display and scroll speed. For Pump it Up this can actually be
                 quite important because holds contribute to your combo count (e.g. we wouldn't want super high hold counts on a low bpm song). Note that 
                 due to the lower density of lower BPM songs, some slight error may be introduced when converting from the actual model placement times. 
-                Generally though, selecting a nice number (preferably something 6000 is nearly divisible by like 150-200) can reasonably keep the 
-                error within 20ms.</li>
+                Generally though, selecting a nice number (preferably something 6000 is nearly divisible by like 150-200) can reasonably keep consistent
+                timing. Currently because of some conversion issues, for SSC files the bpm is fixed at around 600 bpm, so it is recommended to use auto velocity
+                when playing. Hopefully this may be fixed in the future.</li>
             <li><strong>How can I play the generated chart?</strong> For official PIU UCS songs, you may upload ucs files with your
                 account on the Pump it Up <a href='http://www.piugame.com/piu.ucs/ucs.intro/ucs.intro.php' target='_blank'>UCS site</a> and add 
                 them to your profile. You may also play official and non-official song charts using <a href='http://stepf2.blogspot.com/' target='_blank'>StepF2/P1</a>
-                with ssc files (put subfolders in a pack under the <code>Songs/</code> folder). </li>
-            <li><strong>Can I download the models to my computer?</strong> See the <code>train/models/</code> 
-                directory in the repository's master branch.</li>
-            <li><strong>Is it possible to train the model to generate a certain style of stepchart?</strong> 
-                A common approach to this task is known as fine-tuning, where we take an already trained model 
-                (e.g. AICS v1.0) and give it a curated training set with specific types of examples. Functionality
-                for this is also provided in the linked repository.</li>
+                with ssc files (put subfolders in a pack under the 'Songs/' folder). </li>
+            <li><strong>Can I download the models to my computer?</strong> See the repository's master branch.</li>
         </ol>
 
-        <strong>Others:</strong> Feel free to raise an issue on the github repo for futher questions.
+        <strong>Future work:</strong> Currently I have some ideas for different model architectures to perform step chart generation, and may work towards
+        adding them to the project in the future (in particular, a transformer-like model). If you have any issues, questions, or suggestions feel free to 
+        post on the Github repo. 
 
 </div>
 

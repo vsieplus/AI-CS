@@ -6,8 +6,6 @@ library(shiny)
 source('generate.R', local = TRUE)
 source('visualize.R', local = TRUE)
 
-# TODO clear old files when new audio uploaded/chart generated
-
 server <- function(input, output, session) {
   chartData <- NULL
   
