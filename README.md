@@ -14,7 +14,7 @@ custom step charts from audio. This project was inspired by [Dance Dance Convolu
 ## Getting started
 
 If you are mainly interested in generating a stepchart, you can try out some  of the pretrained models at 
-the shiny web app [here](https://vsie.shinyapps.io/ai_custom_step). Simply upload an audio file, select the
+the shiny web app here [COMING SOON]. Simply upload an audio file, select the
 type of chart you'd like, and it will generate a chart for you! There are also some useful visualization tools available.
 
 If you are interested in trying to train your own models, or learning how the project works you can
