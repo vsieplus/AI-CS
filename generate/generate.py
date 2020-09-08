@@ -349,9 +349,8 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             placement_melframe = placement_frames[i].item()
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
-            #placement_hidden = placement_hiddens[i] if conditioned and i > 0 else None
-            placement_hidden = None
-
+            placement_hidden = placement_hiddens[i] if conditioned and i > 0 else None
+            
             if sampling == 'beam-search':
                 if i == 0:
                     beams.append([[0], 0.0, hidden.clone(), cell.clone()])
