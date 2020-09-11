@@ -19,7 +19,7 @@ class TestStepchart(unittest.TestCase):
 			self.assertEqual(step_sequence_to_targets(feats, 'pump-double', None)[0].item(), i)
 
 	def test_special_tokens(self):
-		special = {20686: 'XXXXXXXXXX', 20687: '..HHXHH..'}
+		special = {20686: 'XXXXXXXXXX', 20687: '..MMXMM..'}
 		for key, val in special.items():
 			feats = step_index_to_features(key, 'pump-double', special, d)
 			self.assertEqual(step_features_to_str(feats[0]), val)
