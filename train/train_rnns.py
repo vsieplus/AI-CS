@@ -497,7 +497,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         'selection_test_accuracy': selection_test_acc,
     }
 
-    summary_json = log_training_stats(writer, dataset, summary_json)
+    summary_json = log_training_stats(writer, dataset, summary_json, do_condition)
 
     with open(os.path.join(save_dir, SUMMARY_SAVE), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
@@ -509,7 +509,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         f.write(json.dumps(thresholds, indent=2))
 
 
-def log_training_stats(writer, dataset, summary_json):
+def log_training_stats(writer, dataset, summary_json, conditioning):
     if dataset.computed_stats:
         summary_json = {
             **summary_json,
@@ -626,7 +626,7 @@ def main():
     if first_dataset_load:
         summary_json = {'train_examples': len(train_indices), 'valid_examples': len(valid_indices),
                         'test_examples': len(test_indices), 'conditioning': args.conditioning }
-        summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json)
+        summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json, conditioning=args.conditioning)
         with open(summary_path, 'w') as f:
             f.write(json.dumps(summary_json, indent=2))
     else:
