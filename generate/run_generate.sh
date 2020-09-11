@@ -1,13 +1,13 @@
 #!/bin/bash
 
 python generate.py \
-    --model_dir '../train/models/double/prime12_all_double' \
-    --audio_file 'audio/CS319/CS319.mp3' \
-    --out_dir 'charts/district1/d17' \
+    --model_dir '../train/models/single/fiesta_p2_single' \
+    --audio_file 'audio/CS294/CS294.mp3' \
+    --out_dir 'charts/CS294/s17' \
     --level 17 \
     --display_bpm 150 \
-    --chart_format 'both' \
-    --song_name 'district1' \
-    --song_artist 'max' \
-    --sampling 'top-p' \
+    --chart_format 'ucs' \
+    --song_name 'CS294' \
+    --song_artist 'omg' \
+    --sampling 'top-k' \
     ${@:1}
