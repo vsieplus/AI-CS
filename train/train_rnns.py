@@ -431,7 +431,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
             with torch.set_grad_enabled(train_clstm):
                 (placement_loss,
                  placement_acc,
-                 placement_precision
+                 placement_precision,
                  clstm_hiddens) = run_placement_batch(placement_clstm, placement_optim, PLACEMENT_CRITERION, 
                                                       batch, device, writer, do_condition, do_train=train_clstm, 
                                                       curr_step=step)
