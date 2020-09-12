@@ -392,7 +392,11 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 			if step == 'M':
 				curr_holds.add(j)
 			elif step == 'W':
-				curr_holds.remove(j)
+				try:
+					curr_holds.remove(j)
+				except KeyError:
+					print('bad hold notes, skipping')
+					raise ValueError 
 			elif step == '.' and j in curr_holds:
 				step_to_check[j] = 'H'
 
