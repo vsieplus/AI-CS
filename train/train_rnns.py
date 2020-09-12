@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm, trange
+from sklearn.metrics import average_precision_score
 
 from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
@@ -210,8 +211,14 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_c
         all_scores.clear()
 
         writer.add_pr_curve('placement_pr_curve', targets, scores, curr_step)
+        avg_precision = average_precision_score(targets.numpy(), scores.numpy())
+    else:
+        avg_precision = 1
 
-    return total_loss / num_unrollings, total_accuracy / num_unrollings, clstm_hiddens_padded
+    avg_loss = total_loss / num_unrollings
+    avg_acc = total_accuracy / num_unrollings
+
+    return avg_loss, avg_acc, avg_precision, clstm_hiddens_padded
 
 def get_selection_accuracy(logits, targets, seq_lengths, step):
     # [batch, vocab_size]
@@ -326,7 +333,10 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
         total_loss += loss.item()
 
-    return total_loss / num_frames, total_accuracy / num_frames
+    avg_loss = total_loss / num_frames
+    avg_acc = total_accuracy / num_frames
+
+    return avg_loss, avg_acc
 
 def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion,
              device, writer, curr_validation, do_condition):
@@ -335,16 +345,22 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
     total_p_acc = 0
     total_s_acc = 0
 
+    total_p_precision = 0
+
     with torch.no_grad():
        for i, batch in enumerate(data_iter):
-            p_loss, p_acc, hiddens = run_placement_batch(placement_clstm, None,
-                p_criterion, batch, device, writer, do_condition, do_train=False)
+            (p_loss,
+             p_acc, 
+             p_precision,
+             hiddens) = run_placement_batch(placement_clstm, None, p_criterion, batch, device,
+                                            writer, do_condition, do_train=False)
 
             total_p_loss += p_loss
             total_p_acc += p_acc
+            total_p_precision += p_precision
 
-            s_loss, s_acc = run_selection_batch(selection_rnn, None, s_criterion,
-                batch, device, hiddens, do_train=False)
+            s_loss, s_acc = run_selection_batch(selection_rnn, None, s_criterion, batch, device,
+                                                hiddens, do_train=False)
             
             total_s_loss += s_loss
             total_s_acc += s_acc
@@ -355,9 +371,11 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
                 writer.add_scalar('accuracy/valid_placement', p_acc, step)
                 writer.add_scalar('loss/valid_selection', s_loss, step)
                 writer.add_scalar('accuracy/valid_selection', s_acc, step)
+                writer.add_scalar('precision/placement', p_precision, step)
 
     return (total_p_loss / len(data_iter), total_p_acc / len(data_iter),
-            total_s_loss / len(data_iter), total_s_acc / len(data_iter))
+            total_s_loss / len(data_iter), total_s_acc / len(data_iter),
+            total_p_precision / len(data_iter))
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, fine_tune, 
@@ -374,6 +392,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
+    best_placement_precision = float('inf')
     best_selection_valid_loss = float('inf')
     start_epoch = 0
     start_epoch_batch = 0
@@ -384,7 +403,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     if load_checkpoint:
         checkpoint = load_save(load_checkpoint, fine_tune, placement_clstm, selection_rnn, device)
         if checkpoint:
-            (start_epoch, start_epoch_batch, best_placement_valid_loss, 
+            (start_epoch, start_epoch_batch, best_placement_valid_loss, best_placement_precision,
              best_selection_valid_loss, train_clstm, train_srnn, sub_logdir) = checkpoint
 
     writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', sub_logdir))
@@ -396,6 +415,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
         print('Epoch: {}'.format(epoch))
         epoch_p_loss = 0
+        epoch_p_precision = 0
         epoch_s_loss = 0
         # report_memory(device=device, show_tensors=True)
 
@@ -409,40 +429,51 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
             step = epoch * len(train_iter) + i
 
             with torch.set_grad_enabled(train_clstm):
-                placement_loss, placement_acc, clstm_hiddens = run_placement_batch(placement_clstm, 
-                    placement_optim, PLACEMENT_CRITERION, batch, device, writer, do_condition,
-                    do_train=train_clstm, curr_step=step)
+                (placement_loss,
+                 placement_acc,
+                 placement_precision
+                 clstm_hiddens) = run_placement_batch(placement_clstm, placement_optim, PLACEMENT_CRITERION, 
+                                                      batch, device, writer, do_condition, do_train=train_clstm, 
+                                                      curr_step=step)
 
             with torch.set_grad_enabled(train_srnn):
-                selection_loss, selection_acc = run_selection_batch(selection_rnn, selection_optim,
-                    SELECTION_CRITERION, batch, device, clstm_hiddens, do_train=train_srnn)
+                (selection_loss,
+                 selection_acc) = run_selection_batch(selection_rnn, selection_optim, SELECTION_CRITERION,
+                                                      batch, device, clstm_hiddens, do_train=train_srnn)
 
             epoch_p_loss += placement_loss
+            epoch_p_precision += placement_precision
             epoch_s_loss += selection_loss
 
             writer.add_scalar('loss/train_placement', placement_loss, step)
             writer.add_scalar('accuracy/train_placement', placement_acc, step)
             writer.add_scalar('loss/train_selection', selection_loss, step)
             writer.add_scalar('accuracy/train_selection', selection_acc, step)
+            writer.add_scalar('precision/placement', placement_precision, step)
 
             if train_clstm:
                 save_model(placement_clstm, save_dir, CLSTM_SAVE)
             if train_srnn:
                 save_model(selection_rnn, save_dir, SRNN_SAVE)       
 
-            save_checkpoint(epoch, i, best_placement_valid_loss,
+            save_checkpoint(epoch, i, best_placement_valid_loss, best_placement_precision,
                             best_selection_valid_loss, train_clstm, train_srnn, save_dir)
 
         epoch_p_loss = epoch_p_loss / len(train_iter)
+        epoch_p_precision = epoch_p_precision / len(train_iter)
         epoch_s_loss = epoch_s_loss / len(train_iter)
 
         if epoch % print_every_x_epoch == 0:
             print(f'\tAvg. training placement loss per unrolling: {epoch_p_loss:.5f}')
+            print(f'\tAvg. training placement precision: {epoch_p_precision:.5f}')
             print(f'\tAvg. training selection loss per frame: {epoch_s_loss:.5f}')
 
         if epoch % validate_every_x_epoch == 0:
-            (placement_valid_loss, placement_valid_acc, selection_valid_loss,
-             selection_valid_acc) = evaluate(placement_clstm, selection_rnn, valid_iter, 
+            (placement_valid_loss,
+             placement_valid_acc,
+             selection_valid_loss,
+             selection_valid_acc,
+             placement_precision) = evaluate(placement_clstm, selection_rnn, valid_iter, 
                                              PLACEMENT_CRITERION, SELECTION_CRITERION, device, 
                                              writer, epoch / validate_every_x_epoch, do_condition)
                 
@@ -451,7 +482,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
             # track best performing model(s) or save every epoch
             if early_stopping:
-                better_placement = placement_valid_loss < best_placement_valid_loss
+                #better_placement = placement_valid_loss < best_placement_valid_loss
+                better_placement = placement_precision > best_placement_precision
                 better_selection = selection_valid_loss < best_selection_valid_loss
 
                 if train_clstm:
@@ -467,22 +499,24 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                         best_selection_valid_loss = selection_valid_loss
                         save_model(selection_rnn, save_dir, SRNN_SAVE)
                     else:
-                        # cease training the placement model
                         print("Placement validation loss increased, stopping SRNN training")
                         train_srnn = False
 
                 if not better_placement and not better_selection:
-                    print("Both validation losses have increased. Stopping early..")
+                    print("Both early stopping criterion met. Stopping early..")
                     break
 
-            save_checkpoint(epoch + 1, 0, best_placement_valid_loss, best_selection_valid_loss, 
-                            train_clstm, train_srnn, save_dir)
+            save_checkpoint(epoch + 1, 0, best_placement_valid_loss, best_placement_precision,
+                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
 
     # evaluate on test set
-    (placement_test_loss, placement_test_acc,
-     selection_test_loss, selection_test_acc) = evaluate(placement_clstm, selection_rnn, test_iter, 
-                                                         PLACEMENT_CRITERION, SELECTION_CRITERION,
-                                                         device, writer, -1, do_condition)
+    (placement_test_loss,
+     placement_test_acc,
+     selection_test_loss,
+     selection_test_acc,
+     placement_precision) = evaluate(placement_clstm, selection_rnn, test_iter, 
+                                     PLACEMENT_CRITERION, SELECTION_CRITERION,
+                                     device, writer, -1, do_condition)
 
     # save training summary stats to json file
     # load initial summary
@@ -493,6 +527,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         'epochs_trained': num_epochs,
         'placement_test_loss': placement_test_loss,
         'placement_test_accuracy': placement_test_acc,
+        'placement_test_precision': placement_precision,
         'selection_test_loss': selection_test_loss,
         'selection_test_accuracy': selection_test_acc,
     }
