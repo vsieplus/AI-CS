@@ -59,7 +59,7 @@ def convert_melframe_to_secs(melframe, sample_rate, hop_length=HOP_LENGTH):
     
 ## Model saving/loading #####################################    
     
-def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, best_placement_precision,
+def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, 
                     best_selection_valid_loss, train_clstm, train_srnn, save_dir):
     out_path = os.path.join(save_dir, CHECKPOINT_SAVE)
     
@@ -68,7 +68,6 @@ def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, best_pla
         'epoch': epoch,
         'curr_epoch_batch': curr_epoch_batch,
         'best_placement_valid_loss': best_placement_valid_loss,
-        'best_placement_precision': best_placement_precision,
         'best_selection_valid_loss': best_selection_valid_loss,
         'train_clstm': train_clstm,
         'train_srnn': train_srnn,
@@ -104,7 +103,6 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
         start_epoch = checkpoint['epoch']
         start_epoch_batch = checkpoint['curr_epoch_batch']
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
-        best_placement_precision = checkpoint['best_placement_precision']
         best_selection_valid_loss = checkpoint['best_selection_valid_loss']
         train_clstm = checkpoint['train_clstm']
         train_srnn = checkpoint['train_srnn']
@@ -113,7 +111,7 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
         logdirs = [d for d in os.listdir(os.path.join(save_dir, 'runs'))]
         sub_logdir = [d for d in logdirs if os.path.isdir(os.path.join(save_dir, 'runs', d))][-1]
 
-        return (start_epoch, start_epoch_batch, best_placement_valid_loss, best_placement_precision,
+        return (start_epoch, start_epoch_batch, best_placement_valid_loss, 
                 best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
     else:
         return None
