@@ -543,7 +543,7 @@ def log_training_stats(writer, dataset, summary_json, conditioning):
         writer.add_text('packs', ', '.join(dataset.mixes))
         writer.add_text('permutations', ', '.join(dataset.permutations))
 
-        writer.add_hparams(hparam_dict)
+        writer.add_hparams(hparam_dict, summary_json)
         writer.close()
 
     hparam_dict = {
