@@ -343,7 +343,7 @@ CHART_PERMUTATIONS = {
 	}
 }
 
-STEP_PATTERNS = re.compile('[XMW]')
+STEP_PATTERNS = re.compile('[XMHW]')
 
 @lru_cache(maxsize=4096)
 def permute_steps(steps, chart_type, permutation_type):

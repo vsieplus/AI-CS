@@ -19,22 +19,22 @@ UCS_SSC_DICT = {
 UCS_STATE_DICT = {
     '.': 0,		# off
     'X': 1,		# on
-    'M': 2,		# hold start
-    'H': 0,		# held (don't count as placement)
+    'M': 1,		# on
+    'H': 2,		# held
     'W': 3		# released
 }
 
 STATE_TO_UCS = {
     0: '.',
     1: 'X',
-    2: 'M',
+    2: 'H',
     3: 'W'
 }
 
 # convert a sequence of steps ['00100', '10120', ...] -> input tensor
 def sequence_to_tensor(sequence):
     # shape [abs # of frames, 4 x # arrows (20 for single, 40 for double)]
-    #   (for each arrow, mark 1 of 4 possible states - off, step, hold [start], release)
+    #   (for each arrow, mark 1 of 4 possible states - off, step, hold, release)
     #	(should be already converted to (reduced) UCS notation)
     # eg. ['X000H', '0X00W'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
     #                             -downleft-   -upleft- ....   -downright-
@@ -144,7 +144,7 @@ def step_features_to_str(features, out_format='ucs'):
             elif state_idx == 1:
                 result += 'X'
             elif state_idx == 2:
-                result += 'M'
+                result += 'H'
             elif state_idx == 3:
                 result += 'W'
     elif out_format == 'ssc':
