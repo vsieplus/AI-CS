@@ -55,8 +55,8 @@ def get_filter_indices(chart_type):
     # filtering indices for step selection (see filter_step_dist(..))
     # only compute once for base vocab sizes + save for effeciency
 
-    # filter 1: The only possible next arrow for a current hold (started by 'M') is a hold 'H' or release 'W'
-    # filter 2: A release note 'W' must occur on an arrow currently held - after 'M' or 'H'
+    # filter 1: The only possible next arrow for a current hold (started by 'M') is empty '.' or release 'W'
+    # filter 2: A release note 'W' must follow a hold step 'M' (can't release without already holding)
 
     if os.path.isfile(FILTERING_INDICES_PATH):
         with open(FILTERING_INDICES_PATH, 'r') as f:
@@ -66,7 +66,7 @@ def get_filter_indices(chart_type):
         for mode in step_filters:
             curr_hold_filters, curr_empty_filters = {}, {}
             for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
-                curr_hold_filters[str(j)] = get_state_indices(j, [0, 1, 2], mode)  # filter 1
+                curr_hold_filters[str(j)] = get_state_indices(j, [1], mode)     # filter 1
                 curr_empty_filters[str(j)] = get_state_indices(j, [3], mode)    # filter 2
             
             step_filters[mode]['hold'] = curr_hold_filters
@@ -372,7 +372,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
                 # convert token index -> feature tensor -> str [ucs] representation
                 next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
                 next_token_str = step_features_to_str(next_token_feats)
-                next_token_str = filter_steps(next_token_str, hold_indices)
+                next_token_str, new_hold_indices = filter_steps(next_token_str, hold_indices)
                 
                 chart_data.append([placement_time, next_token_str])
 
@@ -431,10 +431,18 @@ def filter_steps(token_str, hold_indices):
     for j in range(len(token_str)):
         token = token_str[j]
 
+        #  - cannot release 'W' if not currently held
         if token == 'W':
-            hold_indices.remove(j)
+            if j not in hold_indices:
+                token = '.'
+            else:
+                hold_indices.remove(j)
         elif token == 'M':
-            hold_indices.add(j)
+            if j in hold_indices:
+                token = '.'
+        elif token == 'X':
+            if j in hold_indices:
+                token = '.'
              
         new_token_str += token
 
@@ -443,7 +451,8 @@ def filter_steps(token_str, hold_indices):
 def filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters):
     """Filter step distributions to exclude impossible step sequences; see get_filter_indices()"""
     # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
-    # filter 2: A release note 'W' must occur on an arrow that's currently held (filter from non-holds) 
+    # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
+    # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
     for j in range(num_arrows):
         if j in hold_indices:
             # filter step combinations where the jth step is step 'X' if held

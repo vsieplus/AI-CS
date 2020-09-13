@@ -343,7 +343,7 @@ CHART_PERMUTATIONS = {
 	}
 }
 
-STEP_PATTERNS = re.compile('[XMHW]')
+STEP_PATTERNS = re.compile('[XMW]')
 
 @lru_cache(maxsize=4096)
 def permute_steps(steps, chart_type, permutation_type):
@@ -375,9 +375,6 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	if do_convert:
 		converted_sequence = robj.r.convertToUCS([steps for _, _, _, steps in notes])
 
-	# track holds + fill in frames as needed
-	curr_holds = set()
-
 	for i, (_, _, time, steps) in enumerate(notes):
 		if time < 0:
 			continue
@@ -386,21 +383,15 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 			raise ValueError('invalid steps, skipping chart...')	
 
 		step_to_check = converted_sequence[i] if do_convert else steps
-		step_to_check = permute_steps(step_to_check, chart_type, permutation_type)
 
-		for j, step in enumerate(step_to_check):
-			if step == 'M':
-				curr_holds.add(j)
-			elif step == 'W':
-				curr_holds.remove(j)
-			elif step == '.' and j in curr_holds:
-				step_to_check[j] = 'H'
-
-		# only track non-empty frames + frame number
+		# for each frame, track absolute frame number
 		step_this_frame = STEP_PATTERNS.search(step_to_check)
 		if step_this_frame:
 			step_placement_frames.append(int(round(time * CHART_FRAME_RATE)))
-			step_sequence.append(step_to_check)
+
+		# only store non-empty steps in the sequence
+		if step_this_frame:
+			step_sequence.append(permute_steps(step_to_check, chart_type, permutation_type))
 
 	return step_placement_frames, step_sequence
 
