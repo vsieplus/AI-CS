@@ -392,7 +392,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
-    best_placement_precision = float('inf')
+    best_placement_precision = 0
     best_selection_valid_loss = float('inf')
     start_epoch = 0
     start_epoch_batch = 0
