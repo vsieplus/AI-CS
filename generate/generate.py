@@ -66,7 +66,7 @@ def get_filter_indices(chart_type):
         for mode in step_filters:
             curr_hold_filters, curr_empty_filters = {}, {}
             for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
-                curr_hold_filters[str(j)] = get_state_indices(j, [1], mode)     # filter 1
+                curr_hold_filters[str(j)] = get_state_indices(j, [1, 2], mode)     # filter 1
                 curr_empty_filters[str(j)] = get_state_indices(j, [3], mode)    # filter 2
             
             step_filters[mode]['hold'] = curr_hold_filters
@@ -372,7 +372,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
                 # convert token index -> feature tensor -> str [ucs] representation
                 next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
                 next_token_str = step_features_to_str(next_token_feats)
-                next_token_str, new_hold_indices = filter_steps(next_token_str, hold_indices)
+                next_token_str = filter_steps(next_token_str, hold_indices)
                 
                 chart_data.append([placement_time, next_token_str])
 
@@ -433,16 +433,11 @@ def filter_steps(token_str, hold_indices):
 
         #  - cannot release 'W' if not currently held
         if token == 'W':
-            if j not in hold_indices:
-                token = '.'
-            else:
-                hold_indices.remove(j)
+            hold_indices.remove(j)
         elif token == 'M':
-            if j in hold_indices:
-                token = '.'
-        elif token == 'X':
-            if j in hold_indices:
-                token = '.'
+            hold_indices.add(j)
+        elif token == '.' and j in hold_indices:
+            token = 'H'
              
         new_token_str += token
 
