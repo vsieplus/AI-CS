@@ -55,8 +55,9 @@ def get_filter_indices(chart_type):
     # filtering indices for step selection (see filter_step_dist(..))
     # only compute once for base vocab sizes + save for effeciency
 
-    # filter 1: The only possible next arrow for a current hold (started by 'M') is empty '.' or release 'W'
-    # filter 2: A release note 'W' must follow a hold step 'M' (can't release without already holding)
+    # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
+    # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
+    # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
 
     if os.path.isfile(FILTERING_INDICES_PATH):
         with open(FILTERING_INDICES_PATH, 'r') as f:
@@ -66,8 +67,8 @@ def get_filter_indices(chart_type):
         for mode in step_filters:
             curr_hold_filters, curr_empty_filters = {}, {}
             for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
-                curr_hold_filters[str(j)] = get_state_indices(j, [1], mode)     # filter 1
-                curr_empty_filters[str(j)] = get_state_indices(j, [3], mode)    # filter 2
+                curr_hold_filters[str(j)] = get_state_indices(j, [0, 1], mode)  # filter 1
+                curr_empty_filters[str(j)] = get_state_indices(j, [2, 3], mode) # filter 2-3
             
             step_filters[mode]['hold'] = curr_hold_filters
             step_filters[mode]['empty'] = curr_empty_filters
@@ -328,6 +329,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
     # Start generating the sequence of steps
     step_length = torch.ones(1, dtype=torch.long, device=device)
     hold_indices = [set() for _ in range(b)] if sampling == 'beam-search' else set()
+    step_indices = [set() for _ in range(b)] if sampling == 'beam-search' else set()
 
     conditioned = placement_hiddens is not None
 
@@ -353,8 +355,8 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
                     beams.append([[0], 0.0, hidden.clone(), cell.clone()])
 
                 candidates, curr_states = get_beam_candidates(selection_model, beams, b, placement_hidden, step_length, 
-                                                              num_arrows, hold_indices, chart_type, special_tokens, 
-                                                              hold_filters, empty_filters, device)
+                                                              num_arrows, hold_indices, step_indices, chart_type, 
+                                                              special_tokens, hold_filters, empty_filters, device)
                 
                 # if the last element in the sequence, keep the one with the best score
                 if i == num_placements - 1:
@@ -366,21 +368,23 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             else:
                 curr_token = next_token_feats.unsqueeze(0).unsqueeze(0).float() if i > 0 else start_token
                 logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
-                next_token_idx = predict_step(logits.squeeze(), sampling, k, p, hold_indices, 
+                next_token_idx = predict_step(logits.squeeze(), sampling, k, p, hold_indices, step_indices, 
                                               num_arrows, hold_filters, empty_filters)
             
                 # convert token index -> feature tensor -> str [ucs] representation
                 next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
                 next_token_str = step_features_to_str(next_token_feats)
-                next_token_str, new_hold_indices = filter_steps(next_token_str, hold_indices)
+                next_token_str, new_hold_indices = filter_steps(next_token_str, hold_indices, step_indices)
+
+                replace_steps(new_hold_indices, chart_data, i)
                 
                 chart_data.append([placement_time, next_token_str])
 
     return chart_data
 
 def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, step_length, 
-                        num_arrows, hold_indices, chart_type, special_tokens, hold_filters, 
-                        empty_filters, device):
+                        num_arrows, hold_indices, step_indices, chart_type, special_tokens, 
+                        hold_filters, empty_filters, device):
     # store expanded seqs, scores, + original beam idx
     candidates, curr_states = [], []
     for z, (seq, beam_score, hidden, cell) in enumerate(beams):
@@ -390,7 +394,7 @@ def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, st
         logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
         curr_states.append((hidden, cell))    
 
-        curr_candidates = expand_beam(logits.squeeze(), seq, beam_score, z, hold_indices,
+        curr_candidates = expand_beam(logits.squeeze(), seq, beam_score, z, hold_indices, step_indices,
                                       num_arrows, hold_filters, empty_filters)
 
         candidates.extend(curr_candidates)
@@ -400,10 +404,12 @@ def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, st
 
     return candidates, curr_states
 
-def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, num_arrows, hold_filters, empty_filters):
+def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, step_indices,
+                num_arrows, hold_filters, empty_filters):
     # logits: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    dist = filter_step_dist(dist, hold_indices[beam_idx], num_arrows, hold_filters, empty_filters)
+    dist = filter_step_dist(dist, hold_indices[beam_idx], step_indices[beam_idx], 
+                            num_arrows, hold_filters, empty_filters)
     expanded = []
     for j in range(logits.size(0)):
         new_seq = sequence + [j]
@@ -417,57 +423,94 @@ def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, num_arrows
 def save_best_beam(best, placement_times, chart_data, chart_type, special_tokens, device):
     seq, _, _ = best
     hold_indices = set()
+    step_indices = set()
     for m in range(1, len(seq)):
         token_feats = step_index_to_features(seq[m], chart_type, special_tokens, device)
         token_str = step_features_to_str(token_feats)
-        token_str, new_holds = filter_steps(token_str, hold_indices)
+        token_str, new_holds = filter_steps(token_str, hold_indices, step_indices)
+
+        if m > 1:
+            replace_steps(new_holds, chart_data, m - 1)
         
         chart_data.append([placement_times[m - 1], token_str])
 
-def filter_steps(token_str, hold_indices):
-    # filter out step exceptions + track holds
+def replace_steps(new_hold_indices, chart_data, i):
+    # replace steps ('X') immediately before holds ('H') as ('M')
+    if new_hold_indices:
+        prev_step = chart_data[i - 1][1] 
+        replacement = ''
+        for k in range(len(prev_step)):
+            if k in new_hold_indices:
+                replacement += 'M'
+            else:
+                replacement += prev_step[k]
+
+        chart_data[i - 1][1] = replacement
+
+def filter_steps(token_str, hold_indices, step_indices):
+    # filter out step exceptions + track holds and steps
     new_token_str = ''
+    new_hold_indices = []
 
     for j in range(len(token_str)):
         token = token_str[j]
 
         #  - cannot release 'W' if not currently held
         if token == 'W':
-            if j not in hold_indices:
-                token = '.'
-            else:
+            if j in step_indices:
+                # if previous step 'X', change X -> M, and leave this as 'W' (fill in 'H' later)
+                new_hold_indices.append(j)
+                step_indices.remove(j)
+            elif j in hold_indices:
                 hold_indices.remove(j)
-        elif token == 'M':
-            if j in hold_indices:
+            else:
+                token = '.'
+        elif token == 'H' and j not in hold_indices:
+            #  - (retroactive) if 'H' appears directly after an 'X', change the 'X' -> 'M' (hold start)
+            if j in step_indices:
+                hold_indices.add(j)
+                new_hold_indices.append(j)
+                step_indices.remove(j)
+            else:
                 token = '.'
         elif token == 'X':
             if j in hold_indices:
-                token = '.'
+                token = 'W'
+                hold_indices.remove(j)
+            else:
+                step_indices.add(j)
+        elif token == '.':
+            if j in hold_indices:
+                token = 'W'
+                hold_indices.remove(j)
+            else:
+                step_indices.discard(j)
              
         new_token_str += token
 
-    return new_token_str
+    return new_token_str, new_hold_indices
 
-def filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters):
+def filter_step_dist(dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters):
     """Filter step distributions to exclude impossible step sequences; see get_filter_indices()"""
     # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
     # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
     # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
     for j in range(num_arrows):
+        # filter step combinations where the jth step is empty or a step (states = 0, 1)
         if j in hold_indices:
-            # filter step combinations where the jth step is step 'X' if held
             dist[hold_filters[str(j)]] = 0.0
-        else:
-            # filter steps where jth step is a release 'W' if not held
+
+        # if arrow j neither preceded by 'H' or 'X', filter out holds (state = 2) and releases (state = 3)
+        elif j not in step_indices:
             dist[empty_filters[str(j)]] = 0.0
 
     return dist
 
-def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters, empty_filters):
+def predict_step(logits, sampling, k, p, hold_indices, step_indices, num_arrows, hold_filters, empty_filters):
     """predict the next step given model logits and a sampling strategy"""
     # shape: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    dist = filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters)
+    dist = filter_step_dist(dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters)
     
     if sampling == 'top-k':
         # sample from top k probabilites + corresponding indices (sorted)    
@@ -492,7 +535,7 @@ def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters,
         logits[indices_to_remove] = float('-inf')
 
         filtered_dist = torch.nn.functional.softmax(logits, dim=-1)
-        filtered_dist = filter_step_dist(filtered_dist, hold_indices, num_arrows, hold_filters, empty_filters)
+        filtered_dist = filter_step_dist(filtered_dist, hold_indices, step_indices, num_arrows, hold_filters, empty_filters)
         pred_idx = torch.multinomial(filtered_dist, num_samples=1)              
     elif sampling == 'greedy':
         # take the most likely token
