@@ -211,7 +211,7 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_c
         all_scores.clear()
 
         writer.add_pr_curve('placement_pr_curve', targets, scores, curr_step)
-        avg_precision = average_precision_score(targets.cpu().numpy(), scores.cpu().numpy())
+        avg_precision = average_precision_score(targets.numpy(), scores.numpy())
     else:
         avg_precision = 1
 
@@ -502,7 +502,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                         print("Placement validation loss increased, stopping SRNN training")
                         train_srnn = False
 
-                if not train_clstm and not train_srnn:
+                if not better_placement and not better_selection:
                     print("Both early stopping criterion met. Stopping early..")
                     break
 
