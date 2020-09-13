@@ -46,7 +46,7 @@ PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-SELECTION_LR = 0.001
+SELECTION_LR = 0.0001
 
 SELECTION_HIDDEN_WEIGHT = 0.8
 NUM_SELECTION_LSTM_LAYERS = 2
@@ -54,36 +54,32 @@ SELECTION_UNROLLING_LEN = 64
 
 # arrow states: 
 #   0 - OFF,
-#   1 - ON (regular step), 
-#   2 - Hold start, 
-#   3 - Hold release
-#   4 - hold
-NUM_ARROW_STATES = 5
+#   1 - ON (regular step or hold start), 
+#   2 - Hold, 
+#   3 - RELEASE (hold)
+NUM_ARROW_STATES = 4
 
-MAX_ACTIVE_ARROWS = {
-    'pump-single': 3,
-    'pump-double': 4
-}
-
-CHECKPOINT_SAVE = 'checkpoint.tar'
 # vocabulary mapping (indexing by # of activated arrows + states L -> R)
 # (see stepchart.py, step_sequence_to_targets())
 #   0 < index < vocab-size - 1, 
 SELECTION_VOCAB_SIZES = {
-    # 5^5 - SUM(i=4->5) [(5 choose i) * (4 ^ i)] ~ 
-    'pump-single': NUM_ARROW_STATES ** 5 - sum([math.comb(5, i) * ((NUM_ARROW_STATES - 1) ** i)
-                                                for i in range(MAX_ACTIVE_ARROWS['pump-single'] + 1, 6)]),
+    'pump-single': NUM_ARROW_STATES ** 5,   # 1024 possible states
     
-    # 5^10 - SUM_(i=5->10) [(10 choose i) * (4 ^ i)] ~ 20,686
-    'pump-double': NUM_ARROW_STATES ** 10 - sum([math.comb(10, i) * ((NUM_ARROW_STATES - 1) ** i)
-                                                 for i in range(MAX_ACTIVE_ARROWS['pump-double'] + 1, 11)]),
+    # 1,048,576 - SUM_(i=5->10) [(10 choose i) * (3 ^ i)] ~ 20,686
+    'pump-double': NUM_ARROW_STATES ** 10 - sum([math.comb(10, i) * (3 ** i) for i in range(5, 11)]),
 } 
 
 SELECTION_INPUT_SIZES = {
-    'pump-single': NUM_ARROW_STATES * 5,    # 25 element vector / 5 per arrow
-    'pump-double': NUM_ARROW_STATES * 10,   # 50 element vector / ^^^^
+    'pump-single': NUM_ARROW_STATES * 5,    # 20 element vector / 4 per arrow
+    'pump-double': NUM_ARROW_STATES * 10,   # 40 element vector / ^^^^
 }
 
+MAX_ACTIVE_ARROWS = {
+    'pump-single': 5,
+    'pump-double': 4
+}
+
+CHECKPOINT_SAVE = 'checkpoint.tar'
 CLSTM_SAVE = 'clstm.bin'
 SRNN_SAVE = 'srnn.bin'
 
