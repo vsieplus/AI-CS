@@ -33,6 +33,9 @@ FAKE_SPLITS_PER_BEAT = 10 # ~ fake bpm = 600
 FAKE_SPLIT_SUBDIV = FAKE_SPLITS_PER_BEAT * BEATS_PER_MEASURE
 FAKE_BPM = 60 * (CHART_FRAME_RATE / FAKE_SPLITS_PER_BEAT)
 
+NON_HOLD_STATES = [0, 1, 2]
+HOLD_STATES = [3, 4]
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_dir', type=str, help='path to directory containing model files')
@@ -51,12 +54,12 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
-def get_filter_indices(chart_type):
+def get_filter_indices(chart_type, special_tokens):
     # filtering indices for step selection (see filter_step_dist(..))
     # only compute once for base vocab sizes + save for effeciency
 
     # filter 1: The only possible next arrow for a current hold (started by 'M') is a hold 'H' or release 'W'
-    # filter 2: A release note 'W' must occur on an arrow currently held - after 'M' or 'H'
+    # filter 2: A release 'W' or hold 'H' note must occur on an arrow currently held - after 'M' or 'H'
 
     if os.path.isfile(FILTERING_INDICES_PATH):
         with open(FILTERING_INDICES_PATH, 'r') as f:
@@ -66,8 +69,8 @@ def get_filter_indices(chart_type):
         for mode in step_filters:
             curr_hold_filters, curr_empty_filters = {}, {}
             for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
-                curr_hold_filters[str(j)] = get_state_indices(j, [0, 1, 2], mode)  # filter 1
-                curr_empty_filters[str(j)] = get_state_indices(j, [3], mode)    # filter 2
+                curr_hold_filters[str(j)] = get_state_indices(j, NON_HOLD_STATES, mode)  # filter 1
+                curr_empty_filters[str(j)] = get_state_indices(j, HOLD_STATES, mode)     # filter 2
             
             step_filters[mode]['hold'] = curr_hold_filters
             step_filters[mode]['empty'] = curr_empty_filters
@@ -77,6 +80,14 @@ def get_filter_indices(chart_type):
 
     hold_filters = step_filters[chart_type]['hold']
     empty_filters = step_filters[chart_type]['empty']
+
+    if special_tokens:
+        for token_idx, token_str in special_tokens.items():
+            for j, step in enumerate(token_str):
+                if step in NON_HOLD_STATES:
+                    hold_filters[str(j)].append(int(token_idx))
+                else:
+                    empty_filters[str(j)].append(int(token_idx))
 
     return hold_filters, empty_filters
 
@@ -323,7 +334,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
 
     num_arrows = n_step_features // NUM_ARROW_STATES
 
-    hold_filters, empty_filters = get_filter_indices(chart_type)
+    hold_filters, empty_filters = get_filter_indices(chart_type, special_tokens)
 
     # Start generating the sequence of steps
     step_length = torch.ones(1, dtype=torch.long, device=device)
@@ -371,8 +382,11 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             
                 # convert token index -> feature tensor -> str [ucs] representation
                 next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
-                next_token_str = step_features_to_str(next_token_feats)
-                next_token_str = filter_steps(next_token_str, hold_indices)
+                if special_tokens and next_token_idx in special_tokens:
+                    next_token_str = special_tokens[str(next_token_idx)]
+                else:
+                    next_token_str = step_features_to_str(next_token_feats)
+                update_holds(next_token_str, hold_indices)
                 
                 chart_data.append([placement_time, next_token_str])
 
@@ -420,25 +434,20 @@ def save_best_beam(best, placement_times, chart_data, chart_type, special_tokens
     for m in range(1, len(seq)):
         token_feats = step_index_to_features(seq[m], chart_type, special_tokens, device)
         token_str = step_features_to_str(token_feats)
-        token_str, new_holds = filter_steps(token_str, hold_indices)
+        update_holds(token_str, hold_indices)
         
         chart_data.append([placement_times[m - 1], token_str])
 
-def filter_steps(token_str, hold_indices):
-    # filter out step exceptions + track holds
-    new_token_str = ''
-
-    for j in range(len(token_str)):
-        token = token_str[j]
-
+def update_holds(token_str, hold_indices):
+    # track holds
+    for j, token in enumerate(token_str):
         if token == 'W':
-            hold_indices.remove(j)
+            try:
+                hold_indices.remove(j)
+            except:
+                breakpoint()
         elif token == 'M':
             hold_indices.add(j)
-             
-        new_token_str += token
-
-    return new_token_str
 
 def filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters):
     """Filter step distributions to exclude impossible step sequences; see get_filter_indices()"""
@@ -518,7 +527,7 @@ def get_gen_config(model_summary, model_dir, device=torch.device('cpu')):
 
     with open(os.path.join(model_dir, THRESHOLDS_SAVE), 'r') as f:
         placement_thresholds = json.loads(f.read())
-   
+
     return placement_model, selection_model, special_tokens, placement_thresholds
 
 def main():
