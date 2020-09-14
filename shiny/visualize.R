@@ -22,7 +22,7 @@ samplePath = file.path('www', 'clip.wav')
 ## AUDIO VISUALIZATION ##############################
 
 # return a plot of a spectrogram 
-plotSpectrogram <- function(audioPath, startTime = 15.0, endTime = 25.0, saveMP4 = FALSE) {
+plotSpectrogram <- function(audioPath, startTime = 15.0, endTime = 30.0, saveMP4 = FALSE) {
   fft_data <- av::read_audio_fft(audioPath, start_time = startTime, 
                                  end_time = endTime)
   # save sample clip for output
@@ -116,7 +116,7 @@ chartTheme <- theme(text = element_text(family = 'Calibri', color = 'white', siz
                     panel.grid.minor = element_blank())
 
 # plot model peak picking scores for the given range
-plotPeakPicking <- function(modelPeaks, threshold, startTime = 15.0, endTime = 25.0) {
+plotPeakPicking <- function(modelPeaks, threshold, startTime = 15.0, endTime = 30.0) {
   # modelPeaks is a list of lists, each sublist with 2 elems: time + peak score
   peaks <- data.frame(time = sapply(modelPeaks, function(x) x[[1]]),
                       prob = sapply(modelPeaks, function(x) x[[2]]))
@@ -173,7 +173,7 @@ grobHeight.custom_axis = heightDetails.custom_axis = function(x, ...) {
 
 # produce a horizontal plot of step chart section (i.e. a still-shot of a stepchart section)
 # noteData should be an m x 2 df, with observations of time/step
-plotChartSection <- function(noteData, startTime = 15.0, endTime = 25.0, epsilon = 1e-5) {
+plotChartSection <- function(noteData, startTime = 15.0, endTime = 30.0, epsilon = 1e-5) {
   num_arrows <- nchar(as.character(noteData[1, 'step']))
   noteData <- filter(noteData, time >= startTime & time <= endTime)
   
@@ -275,7 +275,7 @@ plotChartDistribution <- function(noteData, chartTitle = '') {
   
   ggplot2::ggplot(arrows_long, aes(x = arrow, y = value, fill = variable)) +
     geom_bar(stat = 'identity', width = 0.7, color = 'lightblue', alpha = 1) +
-    labs(y = 'Frequency', title = paste0('Step Chart Distribution', chartTitle)) +
+    labs(y = 'Frequency', title = paste0('Step chart distribution', chartTitle)) +
     scale_y_continuous(expand = c(0,  0.05), limits = c(0, max_freq + 25)) +
     scale_fill_manual(breaks = waiver(), values = noteColors,
                       name = "Step type", labels = arrow_labels) +

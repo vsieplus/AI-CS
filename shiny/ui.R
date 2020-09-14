@@ -8,7 +8,7 @@ source('util.R', local = TRUE)
 
 CHART_TYPES <- list(Single = 'single', Double = 'double')
 CHART_FORMATS <- c('ssc', 'ucs')
-SAMPLING_CHOICES <- c('top-k', 'top-p', 'beam-search', 'greedy', 'multinom')
+SAMPLING_CHOICES <- c('top-k', 'top-p', 'beam-search', 'greedy')
 
 side_by_side <- function(x, second = FALSE, padding = '20px') {
   if(second) {
