@@ -1,13 +1,13 @@
 #!/bin/bash
 
 python generate.py \
-    --model_dir '../train/models/single/fiesta_p2_single' \
-    --audio_file 'audio/CS294/CS294.mp3' \
-    --out_dir 'charts/CS294/s17' \
-    --level 17 \
+    --model_dir '../train/models/double/fiesta_p2_double' \
+    --audio_file 'audio/asdlr/CS269.mp3' \
+    --out_dir 'charts/asdlr/d19' \
+    --level 19 \
     --display_bpm 150 \
     --chart_format 'ucs' \
-    --song_name 'CS294' \
+    --song_name 'CS269' \
     --song_artist 'omg' \
-    --sampling 'top-k' \
+    --sampling 'top-p' \
     ${@:1}
