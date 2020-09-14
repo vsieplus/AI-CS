@@ -213,7 +213,7 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_c
         writer.add_pr_curve('placement_pr_curve', targets, scores, curr_step)
         avg_precision = average_precision_score(targets.cpu().numpy(), scores.cpu().numpy())
     else:
-        avg_precision = 1
+        avg_precision = 0
 
     avg_loss = total_loss / num_unrollings
     avg_acc = total_accuracy / num_unrollings
