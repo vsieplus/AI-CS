@@ -11,7 +11,7 @@ generate <- import_from_path('generate', path = file.path('pycopies'))
 
 CHART_LEVELS <- list('single' = 26, 'double' = 28)
 
-modelDescriptions = list('rnns' = 'C-LSTM Placement Model + Weighted LSTM RNN Selection Model')
+modelDescriptions = list('rnns' = 'C-LSTM Placement Model + Conditioned LSTM RNN Selection Model')
 
 # retrieve text output containing a summary of the given model
 getModelSummary <- function(modelPath, as_str) {

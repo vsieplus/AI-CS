@@ -48,7 +48,7 @@ getModelDirs <- function(root) {
 #       model.bin (the model file(s) itself saved from training)
 #       summary.json (produced at end of training)
 #     ...
-modelsDir <- file.path('..', 'train', 'models')
-#modelsDir <- 'models'
+#modelsDir <- file.path('..', 'train', 'models')
+modelsDir <- 'models'
 modelTypes <- c('single', 'double')
 modelsList <- lapply(sapply(modelTypes, function(x) file.path(modelsDir, x)), getModelDirs)
