@@ -14,16 +14,12 @@ custom step charts from audio. This project was inspired by [Dance Dance Convolu
 ## Getting started
 
 If you are mainly interested in generating a stepchart, you can try out some  of the pretrained models at 
-the shiny web app here [COMING SOON]. Simply upload an audio file, select the
+the shiny web app [here](http://ec2-18-188-35-4.us-east-2.compute.amazonaws.com/aics/). Simply upload an audio file, select the
 type of chart you'd like, and it will generate a chart for you! There are also some useful visualization tools available.
 
 If you are interested in trying to train your own models, or learning how the project works you can
-continue reading below. A quick way to get started is to setup a [conda](https://docs.conda.io/en/latest/) environment and install the project dependencies as below. 
-
-```bash
-conda create --name aics --file requirements.txt
-conda activate aics
-```
+continue reading below. To see the dependencies for the project refer to the `requirements.txt` file for python packages
+and `shiny/` for R packages.
 
 The pipeline for training a model and then using it to generate charts can be summarized as follows:
 
