@@ -168,10 +168,9 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_c
             if audio_lengths[b] == 0:
                 continue
 
-            if do_train:
-                all_targets.append(targets[b, :audio_lengths[b]])
-                b_dists = F.softmax(logits.detach()[b, :audio_lengths[b]], dim=-1)
-                all_scores.append(b_dists[:, 1])
+            all_targets.append(targets[b, :audio_lengths[b]])
+            b_dists = F.softmax(logits.detach()[b, :audio_lengths[b]], dim=-1)
+            all_scores.append(b_dists[:, 1])
             
             if do_condition:
                 curr_unroll_placements = (targets[b] == 1).nonzero(as_tuple=False).flatten()
@@ -203,18 +202,16 @@ def run_placement_batch(clstm, optimizer, criterion, batch, device, writer, do_c
         clstm_hiddens_padded = pad_sequence(clstm_hiddens, batch_first=True, padding_value=0)
         clstm_hiddens.clear()
 
+    targets = torch.cat(all_targets, dim=0)
+    scores = torch.cat(all_scores, dim=0)
+
+    all_targets.clear()
+    all_scores.clear()
+
     if do_train:
-        targets = torch.cat(all_targets, dim=0)
-        scores = torch.cat(all_scores, dim=0)
-
-        all_targets.clear()
-        all_scores.clear()
-
         writer.add_pr_curve('placement_pr_curve', targets, scores, curr_step)
-        avg_precision = average_precision_score(targets.cpu().numpy(), scores.cpu().numpy())
-    else:
-        avg_precision = 0
 
+    avg_precision = average_precision_score(targets.cpu().numpy(), scores.cpu().numpy())
     avg_loss = total_loss / num_unrollings
     avg_acc = total_accuracy / num_unrollings
 
@@ -478,6 +475,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                                              writer, epoch / validate_every_x_epoch, do_condition)
                 
             print(f'\tAvg. validation placement loss per frame: {placement_valid_loss:.5f}')
+            print(f'\tAvg. training placement precision: {placement_precision:.5f}')
             print(f'\tAvg. validation selection loss per frame: {selection_valid_loss:.5f}')
 
             # track best performing model(s) or save every epoch
@@ -488,6 +486,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
                 if train_clstm:
                     if better_placement:
+                        best_placement_precision = placement_precision				
                         best_placement_valid_loss = placement_valid_loss
                         save_model(placement_clstm, save_dir, CLSTM_SAVE)
                     else:
