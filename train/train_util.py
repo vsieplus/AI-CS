@@ -104,10 +104,12 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
         start_epoch = checkpoint['epoch']
         start_epoch_batch = checkpoint['curr_epoch_batch']
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
-        best_placement_precision = checkpoint['best_placement_precision']
         best_selection_valid_loss = checkpoint['best_selection_valid_loss']
         train_clstm = checkpoint['train_clstm']
         train_srnn = checkpoint['train_srnn']
+    
+        new_model = 'best_placement_precision' in checkpoint
+        best_placement_precision = checkpoint['best_placement_precision'] if new_model else 0
 
         # use last directory under save_dir/runs
         logdirs = [d for d in os.listdir(os.path.join(save_dir, 'runs'))]
