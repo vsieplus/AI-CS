@@ -3,7 +3,6 @@
 
 import argparse
 import datetime
-import gc
 import json
 import os
 import shutil
@@ -13,8 +12,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm, trange
 from sklearn.metrics import average_precision_score
@@ -602,10 +599,6 @@ def log_training_stats(writer, dataset, summary_json, conditioning):
 
     return {**summary_json, **hparam_dict}
 
-def get_dataloader(dataset, indices):
-    index_sampler = SubsetRandomSampler(indices)
-    return DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_charts, sampler=index_sampler)
-
 def main():
     args = parse_args()
 
@@ -646,9 +639,9 @@ def main():
         os.makedirs(args.save_dir)
 
     train_indices, valid_indices, test_indices = dataset.get_splits()
-    train_iter = get_dataloader(dataset, train_indices)
-    valid_iter = get_dataloader(dataset, valid_indices)
-    test_iter = get_dataloader(dataset, test_indices)
+    train_iter = get_dataloader(dataset, BATCH_SIZE, train_indices)
+    valid_iter = get_dataloader(dataset, BATCH_SIZE, valid_indices)
+    test_iter = get_dataloader(dataset, BATCH_SIZE, test_indices)
 
     datasets_size_str = (f'Total charts in dataset: {len(dataset)}\nTrain: {len(train_indices)}, '
                          f'Valid: {len(valid_indices)}, Test: {len(test_indices)}')

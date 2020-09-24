@@ -1,8 +1,13 @@
+# utility functions for training
+
 import gc
 import os
+
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
+from torch.utils.data import DataLoader
+from torch.utils.data.sampler import SubsetRandomSampler
 
 from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, CHECKPOINT_SAVE
 
@@ -119,3 +124,7 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
                 best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
     else:
         return None
+        
+def get_dataloader(dataset, batch_size, indices):
+    index_sampler = SubsetRandomSampler(indices)
+    return DataLoader(dataset, batch_size=batch_size, collate_fn=collate_charts, sampler=index_sampler)
