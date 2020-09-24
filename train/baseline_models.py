@@ -34,18 +34,7 @@ class PlacementMLP(nn.Module):
 
         return out
 
-# baseline smoothed n-gram selection model
-def get_ngrams(n, notes, prepend=True, append=True):
-    prepended = []
-    if prepend:
-        prepend = [f'<pre{i}>' for i in reversed(range(n - 1))]
-
-    appended = ['<post>'] if append else []
-
-    sequence = prepended + notes + appended
-    for i in range(len(sequence) - n + 1):
-        yield tuple(sequence[i:i + n])
-
+# smoothed n-gram selection models
 # adapted from https://github.com/chrisdonahue/ddc/blob/master/learn/ngram.py
 class SelectionNGram:
     def __init__(self, ngram_counts, n=5):
