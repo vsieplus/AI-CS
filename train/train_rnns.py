@@ -20,7 +20,7 @@ from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from optimize_thresholds import optimize_placement_thresholds
 from predict_placements import predict_placements
-from stepchart import StepchartDataset, collate_charts
+from stepchart import StepchartDataset
 from train_util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model
 
 ABS_PATH = str(Path(__file__).parent.absolute())

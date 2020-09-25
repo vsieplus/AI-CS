@@ -4,6 +4,8 @@ import torch
 import torchaudio
 import torchaudio.transforms as transforms
 
+from hyper import N_MELS, N_FFTS, HOP_LENGTH
+
 # reads audio file/returns raw waveform amd sample_rate of loaded audio as torch tensor
 def load_audio(audio_fp):
     # waveform shape: [channel, time] -> avg across channels -> channel=1
@@ -23,7 +25,7 @@ def normalize_features(features):
     return (features - mean) / sd
 
 # n_ffts -> sizes of FFT to use; default ~ 23ms, 46ms, 93ms
-def extract_audio_feats(audio_fp, n_ffts=[1024, 2048, 4096], hop_length=512, pad=0, n_mels=80):
+def extract_audio_feats(audio_fp, n_ffts=N_FFTS, hop_length=HOP_LENGTH, pad=0, n_mels=N_MELS):
     waveform, sample_rate = load_audio(audio_fp)
 
     audio_feats = []

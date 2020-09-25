@@ -16,6 +16,8 @@ HIDDEN_SIZE = 128
 NUM_EPOCHS = 25
 MAX_GRAD_NORM = 5
 
+N_MELS = 80
+N_FFTS = [1024, 2048, 4096]
 HOP_LENGTH = 512
 
 # actually bce loss, but use crossentropy for ignore_index functionality
