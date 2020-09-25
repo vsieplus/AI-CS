@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, CHECKPOINT_SAVE
+from stepchart import collate_charts
 
 # avoid subdirs clutter when adding hparams with summary writer
 class SummaryWriter(SummaryWriter):
