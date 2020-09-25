@@ -19,6 +19,10 @@ shinythemes
 av
 ggplot2
 reticulate
+magick
+dplyr
+reshape2
+rjson
 ```
 
 In particular, the `reticulate` package provides an interface to python code. If you have
