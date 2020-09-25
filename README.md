@@ -19,7 +19,10 @@ type of chart you'd like, and it will generate a chart for you! There are also s
 
 If you are interested in trying to train your own models, or learning how the project works you can
 continue reading below. To see the dependencies for the project refer to the `requirements.txt` file for python packages
-and `shiny/` for R packages.
+and `shiny/` for R packages. Required versions:
+
+- Python 3.8.x
+- R 4.0.x
 
 The pipeline for training a model and then using it to generate charts can be summarized as follows:
 
