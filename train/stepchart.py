@@ -9,7 +9,6 @@ import re
 import rpy2.robjects as robj
 import torch
 from torch.utils.data import Dataset, random_split
-from torch.nn.utils.rnn import pad_sequence
 from tqdm import trange
 from pathlib import Path
 from joblib import Memory
@@ -32,79 +31,6 @@ extract_audio_feats = memory.cache(extract_audio_feats)
 
 # import chart util functions from r script
 robj.r.source(R_CHART_UTIL_PATH)	
-
-def collate_charts(batch):
-	"""custom collate function for dataloader
-		input: dict of chart objects/lengths
-		output: dict of batch inputs, targets
-	"""
-	batch = list(filter(lambda x: x is not None, batch))
-
-	batch_size = len(batch)
-
-	audio_feats = []
-	chart_feats = []
-	levels = []
-
-	first_frame = 100000000
-	last_frame = -1
-
-	placement_targets = []
-
-	step_sequence = []
-	step_targets = []
-
-	# list of lengths of examples, for packing
-	audio_lengths = []
-	step_sequence_lengths = []
-
-	for chart in batch:
-		# skip empty charts
-		if chart.n_steps == 0:
-			continue
-
-		# transpose channels/timestep so timestep comes first for pad_sequence()
-		audio_feats.append(chart.get_audio_feats().transpose(0, 1))
-		chart_feats.append(torch.tensor(chart.chart_feats).unsqueeze(0))
-		placement_targets.append(chart.placement_targets)
-
-		levels.append(chart.level)
-
-		# already tensors
-		step_sequence.append(chart.step_sequence)
-		step_targets.append(chart.step_targets)
-
-		if chart.first_frame < first_frame:
-			first_frame = chart.first_frame
-		
-		if chart.last_frame > last_frame:
-			last_frame = chart.last_frame
-
-		audio_lengths.append(audio_feats[-1].size(0))
-		step_sequence_lengths.append(step_sequence[-1].size(0))
-
-	# transpose timestep/channel dims back => [batch, channels, max audio frames, freq]
-	audio_feats = pad_sequence(audio_feats, batch_first=True, padding_value=PAD_IDX).transpose(1, 2)
-	chart_feats = torch.cat(chart_feats, dim=0) # [batch, chart_feats]
-
-	# [batch, max audio frames]
-	placement_targets = pad_sequence(placement_targets, batch_first=True, padding_value=PAD_IDX)
-
-	# [batch, max arrow seq len, arrow features] / [batch, max arrow seq len]
-	step_sequence = pad_sequence(step_sequence, batch_first=True, padding_value=PAD_IDX)
-	step_targets = pad_sequence(step_targets, batch_first=True, padding_value=PAD_IDX)
-
-	return {'audio_feats': audio_feats,
-			'chart_feats': chart_feats,
-			'chart_levels': levels,
-			'audio_lengths': audio_lengths,
-			'placement_targets': placement_targets,
-			'first_step_frame': first_frame,
-			'last_step_frame': last_frame,
-			'step_sequence': step_sequence,
-			'step_sequence_lengths': step_sequence_lengths,
-			'step_targets': step_targets,
-	}
 
 class StepchartDataset(Dataset):
 	"""Dataset of step charts"""
