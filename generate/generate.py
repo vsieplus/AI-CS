@@ -213,9 +213,8 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
             chart_txt += f':{key}={val}\n'
         
         for i, (beatsplit, _, notes) in enumerate(chart_sections):
-            delay = 100 if i == 0 else 0
             if notes:
-                chart_txt += f':BPM={display_bpm}\n:Delay={delay}\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
+                chart_txt += f':BPM={display_bpm}\n:Delay=0\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
                 chart_txt += '\n'.join(notes) + '\n'
 
         chart_fp = audio_filename + '.ucs'
