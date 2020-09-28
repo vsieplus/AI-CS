@@ -17,7 +17,6 @@ from joblib import Memory
 from extract_audio_feats import extract_audio_feats, load_audio
 from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, SELECTION_VOCAB_SIZES)
 from step_tokenize import sequence_to_tensor, step_sequence_to_targets, step_features_to_str, step_index_to_features
-from train_util import convert_chartframe_to_melframe
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATA_DIR = os.path.join('..', 'data')
@@ -326,6 +325,17 @@ class Song:
 
 		# secs = (hop * melframe) / sample_rate
 		self.n_minutes = (HOP_LENGTH * self.audio_feats.size(1) / self.sample_rate) / 60
+
+def convert_chartframe_to_melframe(frame, sample_rate, hop_length=HOP_LENGTH, chart_frame_rate=CHART_FRAME_RATE):
+    """convert chart frame #s (10ms) -> audio frame #s [from mel spectrogram representation]
+	   melframe = round((sample_rate * secs) / hop_length)
+	   -> secs = (hop * melframe) / sample_rate
+
+       chart_frame_rate = # of chart frames per second (e.g. 100 -> 10 ms chart frames)
+    """
+    frame_secs = frame / chart_frame_rate
+    return frame_secs * sample_rate / hop_length
+
 
 CHART_PERMUTATIONS = {
 	'pump-single': {
