@@ -34,6 +34,11 @@ The pipeline for training a model and then using it to generate charts can be su
 
 Each step consists of various sub-processes, so each directory itself has a README with further details.
 
+### Shiny App Preview
+
+![preview 1](res/prev1.png?raw=true "Interactive Shiny app")
+![preview 2](res/prev2.png?raw=true "")
+
 ### Issues/bugs
 
 Feel free to raise any issues or bugs you may encounter, and ask any questions you might have. 
