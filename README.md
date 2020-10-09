@@ -36,8 +36,8 @@ Each step consists of various sub-processes, so each directory itself has a READ
 
 ### Shiny App Preview
 
-![preview 1](res/prev1.png?raw=true "Interactive Shiny app")
-![preview 2](res/prev2.png?raw=true "")
+![preview 1](res/prev1.png)
+![preview 2](res/prev2.png)
 
 ### Issues/bugs
 
