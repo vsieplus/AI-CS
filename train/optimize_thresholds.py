@@ -13,14 +13,13 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from tqdm import tqdm, trange
 
 from arrow_rnns import PlacementCLSTM
-from hyper import MAX_CHARTLEVEL, MIN_THRESHOLD, SUMMARY_SAVE, THRESHOLDS_SAVE
+from hyper import MAX_CHARTLEVEL, MIN_THRESHOLD, SUMMARY_SAVE, THRESHOLDS_SAVE, CHART_LEVEL_BINS, N_LEVELS
 from stepchart import StepchartDataset
 from train_util import load_save, collate_charts
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
 OPTIMIZATION_BATCH_SIZE = 8
-OPTIMIZATION_RANGE = 2
 
 def get_targets_and_probs(placement_model, valid_iter, device):   
     placement_model.eval()
@@ -73,17 +72,16 @@ def optimize_placement_thresholds(placement_model, valid_iter, device=torch.devi
     missing_levels = []
 
     print('Now optimizing thresholds')
-    for i in trange(MAX_CHARTLEVEL // OPTIMIZATION_RANGE):
+    for i in trange(N_LEVELS):
         best_f2_score = -1
         last_improved = 0
+        level = i + 1
 
-        curr_levels = range(i * OPTIMIZATION_RANGE, i * OPTIMIZATION_RANGE + OPTIMIZATION_RANGE)
         curr_probs, curr_targets = [], []
-        for level in curr_levels:
-            thresholds[str(level + 1)] = MIN_THRESHOLD
-            if level in probs and level in targets:
-                curr_probs.extend(probs[level])
-                curr_targets.extend(targets[level])
+        thresholds[str(level)] = MIN_THRESHOLD
+        if level in probs and level in targets:
+            curr_probs.extend(probs[level])
+            curr_targets.extend(targets[level])
 
         if not curr_probs or not curr_targets:
             continue
@@ -97,8 +95,7 @@ def optimize_placement_thresholds(placement_model, valid_iter, device=torch.devi
             if curr_f2_score > best_f2_score:
                 best_f2_score = curr_f2_score
                 last_improved = 0
-                for level in curr_levels:
-                    thresholds[str(level + 1)] = curr_threshold
+                thresholds[str(level)] = curr_threshold
 
     return thresholds
 
