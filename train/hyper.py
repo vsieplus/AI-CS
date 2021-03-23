@@ -8,7 +8,7 @@ SEED = 1950
 PAD_IDX = -1
 
 N_CHART_TYPES = 2
-N_LEVELS = 28
+N_LEVELS = 10          # 28 levels -> 11 different ranges
 CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
 
 BATCH_SIZE = 64
@@ -56,29 +56,32 @@ SELECTION_UNROLLING_LEN = 64
 
 # arrow states: 
 #   0 - OFF,
-#   1 - ON (regular step or hold start), 
-#   2 - Hold, 
-#   3 - RELEASE (hold)
-NUM_ARROW_STATES = 4
+#   1 - ON (regular step),
+#   2 - hold start 
+#   3 - hold
+#   4 - hold release
+NUM_ARROW_STATES = 5
+NUM_ACTIVE_STATES = NUM_ARROW_STATES - 1
 
 # vocabulary mapping (indexing by # of activated arrows + states L -> R)
 # (see stepchart.py, step_sequence_to_targets())
 #   0 < index < vocab-size - 1, 
 SELECTION_VOCAB_SIZES = {
-    'pump-single': NUM_ARROW_STATES ** 5,   # 1024 possible states
+    # exclude steps with 4+ active arrows at a time
+    'pump-single': NUM_ARROW_STATES ** 5 - sum([math.comb(5, i) * (NUM_ACTIVE_STATES ** i) for i in range(4, 6)]),
     
-    # 1,048,576 - SUM_(i=5->10) [(10 choose i) * (3 ^ i)] ~ 20,686
-    'pump-double': NUM_ARROW_STATES ** 10 - sum([math.comb(10, i) * (3 ** i) for i in range(5, 11)]),
+    # 5 ^ 10 - SUM_(i=5->10) [(10 choose i) * (4 ^ i)] ~ ...
+    'pump-double': NUM_ARROW_STATES ** 10 - sum([math.comb(10, i) * (NUM_ACTIVE_STATES ** i) for i in range(5, 11)]),
 } 
 
 SELECTION_INPUT_SIZES = {
-    'pump-single': NUM_ARROW_STATES * 5,    # 20 element vector / 4 per arrow
-    'pump-double': NUM_ARROW_STATES * 10,   # 40 element vector / ^^^^
+    'pump-single': NUM_ARROW_STATES * 5,    #  NUM_ARROW_STATES (which state) per arrow
+    'pump-double': NUM_ARROW_STATES * 10,   #  ^^^^
 }
 
 MAX_ACTIVE_ARROWS = {
-    'pump-single': 5,
-    'pump-double': 4
+    'pump-single': 3,
+    'pump-double': 4,
 }
 
 CHECKPOINT_SAVE = 'checkpoint.tar'

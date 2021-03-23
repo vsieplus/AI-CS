@@ -5,7 +5,7 @@ import math
 
 import torch
 
-from hyper import NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES, MAX_ACTIVE_ARROWS
+from hyper import NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES, MAX_ACTIVE_ARROWS, NUM_ACTIVE_STATES
 
 UCS_SSC_DICT = {
     '.': '0',   # no step
@@ -19,16 +19,17 @@ UCS_SSC_DICT = {
 UCS_STATE_DICT = {
     '.': 0,		# off
     'X': 1,		# on
-    'M': 1,		# on
-    'H': 2,		# held
-    'W': 3		# released
+    'M': 2,		# hold start
+    'H': 3,		# held
+    'W': 4,		# hold release
 }
 
 STATE_TO_UCS = {
     0: '.',
     1: 'X',
-    2: 'H',
-    3: 'W'
+    2: 'M',
+    3: 'H',
+    4: 'W'
 }
 
 # convert a sequence of steps ['00100', '10120', ...] -> input tensor
@@ -61,7 +62,7 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
         in: step_input - shape [seq length, chart_features], tensor representations of (nonempty) steps
             chart_type - 'pump-single' or 'pump-double'
             special_tokens - predefined special token indices/values in the chart's dataset,
-                             use for doubles charts with 5+ activated arrows at a time
+                             use for doubles charts with 5+ activated arrows at a time/singles for 4+
         out: targets - shape [seq length], values in range [0, vocab size - 1]
     """
     num_arrows = step_input.size(1) // NUM_ARROW_STATES
@@ -74,8 +75,8 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
         #				  -> arrow states [1, ..., num_arrow_states - 1] (ignore off)
 
         # step_index =  SUM_{k=0->num_active - 1} (num_arrows choose k) * 3 ^ k +
-        #				SUM_{i' < i} ... SUM_{j' < j} 3 ^ num_active +
-        #				SUM_{x1, .., x_num_active} (x_i - 1) * 3 ^ i (base 3 R -> L)
+        #				SUM_{i' < i} ... SUM_{j' < j} NUM_ACTIVE_STATES ^ num_active +
+        #				SUM_{x1, .., x_num_active} (x_i - 1) * NUM_ACTIVE_STATES ^ i (base NUM_ACTIVE_STATES R -> L)
         #	[i' = first index L->R, i = true first index, j', j = zth index, z = num active arrows]
         idx = 0
 
@@ -108,21 +109,21 @@ def step_sequence_to_targets(step_input, chart_type, special_tokens):
             continue
 
         for num_active in range(num_active_arrows):
-            idx += math.comb(num_arrows, num_active) * (3 ** num_active)
+            idx += math.comb(num_arrows, num_active) * (NUM_ACTIVE_STATES ** num_active)
 
         first_possible_idx = 0
         for k, arrow_idx in enumerate(active_arrow_indices):
             if arrow_idx > first_possible_idx:
                 # count over the possible arrangements of steps that use the skipped indices
                 for skipped_idx in range(first_possible_idx, arrow_idx):
-                    idx += (3 ** num_active_arrows) * calc_arrangements(skipped_idx, len(active_arrow_indices) - k, num_arrows - 1)
+                    idx += (NUM_ACTIVE_STATES ** num_active_arrows) * calc_arrangements(skipped_idx, len(active_arrow_indices) - k, num_arrows - 1)
             
             first_possible_idx = arrow_idx + 1
         
         # base 3 R -> L
         active_arrow_states.reverse()
         for a, state in enumerate(active_arrow_states):
-            idx += (state - 1) * (3 ** a)
+            idx += (state - 1) * (NUM_ACTIVE_STATES ** a)
 
         targets[s] = idx
 
@@ -139,14 +140,7 @@ def step_features_to_str(features, out_format='ucs'):
             start = arrow * NUM_ARROW_STATES
             state_idx = (features[start:start + NUM_ARROW_STATES] == 1).nonzero(as_tuple=False).flatten()
 
-            if state_idx == 0:
-                result += '.'
-            elif state_idx == 1:
-                result += 'X'
-            elif state_idx == 2:
-                result += 'H'
-            elif state_idx == 3:
-                result += 'W'
+            result += STATE_TO_UCS[state_idx.item()]
     elif out_format == 'ssc':
         raise NotImplementedError
 
@@ -169,7 +163,7 @@ def step_index_to_features(index, chart_type, special_tokens, device):
 
     # determine no. of active arrows
     for num_active in range(num_arrows + 1):
-        n_steps = math.comb(num_arrows, num_active) * (3 ** num_active)
+        n_steps = math.comb(num_arrows, num_active) * (NUM_ACTIVE_STATES ** num_active)
 
         if index < tracking_index + n_steps:
             num_active_arrows = num_active
@@ -181,7 +175,7 @@ def step_index_to_features(index, chart_type, special_tokens, device):
         # determine which arrows are active
         active_indices = []
 
-        states_per_arrangement = 3 ** num_active_arrows
+        states_per_arrangement = NUM_ACTIVE_STATES ** num_active_arrows
 
         # all steps with first possible index enumerated first
         for arrow_idx in range(num_arrows):
@@ -199,7 +193,7 @@ def step_index_to_features(index, chart_type, special_tokens, device):
         arrow_states = []
         for a in range(num_active_arrows):
             for state in range(1, NUM_ARROW_STATES):
-                n_state_arrangements = (3 ** (num_active_arrows - a - 1))
+                n_state_arrangements = (NUM_ACTIVE_STATES ** (num_active_arrows - a - 1))
                 if index < tracking_index + n_state_arrangements:
                     arrow_states.append(state)
                     break

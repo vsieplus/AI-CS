@@ -354,6 +354,19 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 
 	return placement_target, first_frame, last_frame
 
+# bin levels -> ten level ranges
+CHART_LEVEL_BINS = {
+	1 : 1, 2 : 1, 3 : 1, 4 : 1,
+	5 : 2, 6 : 2, 7 : 2, 
+	8 : 3, 9 : 3, 10 : 3,
+	11 : 4, 12 : 4, 13 : 4,
+	14 : 5, 15 : 5, 16 : 5,
+	17: 6, 18: 6,
+	19: 7, 20: 7,
+	21: 8, 22: 8,
+	23: 9, 24: 9, 25: 9,
+	26: 10, 27: 10, 28: 10,
+}
 
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""
@@ -363,25 +376,22 @@ class Chart:
 
 		self.step_artist = chart_attrs['credit'] if 'credit' in chart_attrs else ''
 		self.level = int(chart_attrs['meter'])
+		self.level_bin = CHART_LEVEL_BINS[self.level]
 		self.chart_type = chart_attrs['stepstype']
 		assert(self.chart_type in CHART_PERMUTATIONS)
 
 		# concat one-hot encodings of chart_type/level
 		chart_type_one_hot = [0 if self.chart_type == 'pump-single' else 1
 							  for _ in range(N_CHART_TYPES)]
-		chart_type_one_hot = [0] * N_CHART_TYPES
-		if self.chart_type == 'pump-single':
-			chart_type_one_hot[0] = 1
-		else:
-			chart_type_one_hot[1] = 1
 		level_one_hot = [0] * N_LEVELS
-		level_one_hot[self.level - 1] = 1
+		level_one_hot[self.level_bin - 1] = 1
 		self.chart_feats = chart_type_one_hot + level_one_hot
 
 		self.permutation_type = permutation_type
 
 		try:
-			step_placement_frames, step_sequence = parse_notes(chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
+			step_placement_frames, step_sequence = parse_notes(chart_attrs['notes'], self.chart_type, 
+															   self.permutation_type, self.filetype)
 		except ValueError:
 			raise
 
