@@ -14,7 +14,7 @@ custom step charts from audio. This project was inspired by [Dance Dance Convolu
 ## Getting started
 
 If you are mainly interested in generating a stepchart, you can try out some  of the pretrained models at 
-the shiny web app [here](http://ec2-18-188-35-4.us-east-2.compute.amazonaws.com/aics/). Simply upload an audio file, select the
+the shiny web app [here](http://ec2-18-188-35-4.us-east-2.compute.amazonaws.com/aics/) (currently down b/c no funds for the server :-(). Simply upload an audio file, select the
 type of chart you'd like, and it will generate a chart for you! There are also some useful visualization tools available.
 
 If you are interested in trying to train your own models, or learning how the project works you can
@@ -33,6 +33,11 @@ The pipeline for training a model and then using it to generate charts can be su
 3. After training is complete, use the saved models to generate and save new charts in `generate/`
 
 Each step consists of various sub-processes, so each directory itself has a README with further details.
+
+### Shiny App Preview
+
+![](https://raw.githubusercontent.com/vsieplus/AI-CS/master/res/prev1.PNG)
+![](https://raw.githubusercontent.com/vsieplus/AI-CS/master/res/prev2.PNG)
 
 ### Issues/bugs
 
