@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.nn.utils.rnn import pad_sequence
 
-from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, CHECKPOINT_SAVE
+from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, CHECKPOINT_SAVE, PAD_IDX
 
 # avoid subdirs clutter when adding hparams with summary writer
 class SummaryWriter(SummaryWriter):

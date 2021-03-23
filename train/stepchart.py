@@ -14,7 +14,7 @@ from pathlib import Path
 from joblib import Memory
 
 from extract_audio_feats import extract_audio_feats, load_audio
-from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, SELECTION_VOCAB_SIZES)
+from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, CHART_LEVEL_BINS, SELECTION_VOCAB_SIZES)
 from step_tokenize import sequence_to_tensor, step_sequence_to_targets, step_features_to_str, step_index_to_features
 
 ABS_PATH = str(Path(__file__).parent.absolute())
@@ -303,7 +303,7 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 	step_placement_times = []
 
 	step_sequence = []   # sequence of non-empty steps
-	delta_time = []      # for each step, tuple of (time since last step, time until next step)
+	delta_time = []      # for each step, store (time since last step)
 
 	num_arrows = 5 if chart_type == 'pump-single' else 10
 
@@ -330,16 +330,11 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 			# only store non-empty steps in the sequence
 			step_sequence.append(permute_steps(step_to_check, chart_type, permutation_type))
 
-			# store time differences between steps
-			curr_idx = len(step_placement_times) - 2
-			if len(step_placement_times) == 2:
-				delta_time.append((0, time - step_placement_times[curr_idx]))
-			elif len(step_placement_times) > 2:
-				delta_time.append((step_placement_times[curr_idx] - step_placement_times[curr_idx - 1],
-								   time - step_placement_times[curr_idx]))
-
-	curr_idx = len(step_placement_times) - 1
-	delta_time.append((step_placement_times[curr_idx] - step_placement_times[curr_idx - 1], 0))
+			# store time difference from last step
+			if len(step_placement_times) == 1:
+				delta_time.append(0)
+			else:
+				delta_time.append(step_placement_times[-1] - step_placement_times[-2])
 
 	return step_placement_frames, step_sequence, delta_time
 
@@ -365,20 +360,6 @@ def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	last_frame = mel_placement_frames[-1].item() if any_placements else 0
 
 	return placement_target, first_frame, last_frame
-
-# bin levels -> ten level ranges
-CHART_LEVEL_BINS = {
-	1 : 1, 2 : 1, 3 : 1, 4 : 1,
-	5 : 2, 6 : 2, 7 : 2, 
-	8 : 3, 9 : 3, 10 : 3,
-	11 : 4, 12 : 4, 13 : 4,
-	14 : 5, 15 : 5, 16 : 5,
-	17: 6, 18: 6,
-	19: 7, 20: 7,
-	21: 8, 22: 8,
-	23: 9, 24: 9, 25: 9,
-	26: 10, 27: 10, 28: 10,
-}
 
 class Chart:
 	"""A chart object, with associated data. Represents a single example"""
@@ -420,8 +401,10 @@ class Chart:
 
 		# ignore steps in sequence after song has ended
 		# (make sure length matches num of placement targets)
-		self.step_features = self.step_features[:self.placement_targets.sum()]
-		self.step_targets = self.step_targets[:self.placement_targets.sum()]
+		num_placements = self.placement_targets.sum()
+		self.step_time_features = self.step_time_features[:num_placements] 
+		self.step_features = self.step_features[:num_placements]
+		self.step_targets = self.step_targets[:num_placements]
 
 		self.n_steps = self.step_features.size(0)
 		self.steps_per_second = self.n_steps / (self.song.n_minutes * 60)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 python generate.py \
-    --model_dir '../train/models/double/fp2_v2' \
+    --model_dir '../train/models/single/aicsv1_1' \
     --audio_file 'audio/CS320/CS320.mp3' \
     --out_dir 'charts/CS320/d17' \
     --level 17 \

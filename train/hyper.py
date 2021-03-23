@@ -8,8 +8,22 @@ SEED = 1950
 PAD_IDX = -1
 
 N_CHART_TYPES = 2
-N_LEVELS = 10          # 28 levels -> 11 different ranges
+N_LEVELS = 10          # 28 levels -> 10 different ranges
 CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
+
+# bin levels -> ten level ranges
+CHART_LEVEL_BINS = {
+	1 : 1, 2 : 1, 3 : 1, 4 : 1,
+	5 : 2, 6 : 2, 7 : 2, 
+	8 : 3, 9 : 3, 10 : 3,
+	11 : 4, 12 : 4, 13 : 4,
+	14 : 5, 15 : 5, 16 : 5,
+	17: 6, 18: 6,
+	19: 7, 20: 7,
+	21: 8, 22: 8,
+	23: 9, 24: 9, 25: 9,
+	26: 10, 27: 10, 28: 10,
+}
 
 BATCH_SIZE = 64
 HIDDEN_SIZE = 128
@@ -48,7 +62,7 @@ PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SELECTION_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-SELECTION_LR = 0.0005
+SELECTION_LR = 0.0001
 
 SELECTION_HIDDEN_WEIGHT = 0.8
 NUM_SELECTION_LSTM_LAYERS = 2

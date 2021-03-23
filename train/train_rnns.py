@@ -378,11 +378,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
                                      PLACEMENT_INPUT_SIZE, HIDDEN_SIZE).to(device)
-    placement_optim = optim.SGD(placement_clstm.parameters(), lr=PLACEMENT_LR)
+    placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
 
     selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
                                  dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
-    selection_optim = optim.SGD(selection_rnn.parameters(), lr=SELECTION_LR)
+    selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
 
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')

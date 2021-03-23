@@ -14,7 +14,7 @@ from tqdm import trange
 import sys
 sys.path.append(os.path.join('..', 'train'))
 from hyper import (N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES,
-                   SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE)
+                   SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE, CHART_LEVEL_BINS)
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer import ArrowTransformer
 from extract_audio_feats import extract_audio_feats
@@ -286,7 +286,7 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level, th
     else:
         chart_feats[1] = 1
 
-    chart_feats[chart_level + 1] = 1
+    chart_feats[2 + (CHART_LEVEL_BINS[chart_level] - 1)] = 1
 
     # [batch=1, # chart features]
     chart_feats = torch.tensor(chart_feats, dtype=torch.long, device=device).unsqueeze(0)
@@ -347,6 +347,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             placement_melframe = placement_frames[i].item()
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
+            delta_time = torch.tensor(placement_times[-1] - placement_times[-2] if i > 1 else 0).unsqueeze(0).unsqueeze(0).to(device)
             placement_hidden = placement_hiddens[i] if conditioned and i > 0 else None
             
             if sampling == 'beam-search':
@@ -366,6 +367,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
                         beams[beam_idx] = [seq, score, curr_hidden, curr_cell]
             else:
                 curr_token = next_token_feats.unsqueeze(0).unsqueeze(0).float() if i > 0 else start_token
+                curr_token = torch.cat((curr_token, delta_time), dim=-1)
                 logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
                 next_token_idx = predict_step(logits.squeeze(), sampling, k, p, hold_indices, 
                                               num_arrows, hold_filters, empty_filters)

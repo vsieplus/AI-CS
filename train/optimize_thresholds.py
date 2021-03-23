@@ -14,8 +14,8 @@ from tqdm import tqdm, trange
 
 from arrow_rnns import PlacementCLSTM
 from hyper import MAX_CHARTLEVEL, MIN_THRESHOLD, SUMMARY_SAVE, THRESHOLDS_SAVE
-from stepchart import StepchartDataset, collate_charts
-from train_util import load_save
+from stepchart import StepchartDataset
+from train_util import load_save, collate_charts
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
