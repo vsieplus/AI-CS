@@ -332,9 +332,9 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 
 			# store time difference from last step
 			if len(step_placement_times) == 1:
-				delta_time.append(0)
+				delta_time.append([0])
 			else:
-				delta_time.append(step_placement_times[-1] - step_placement_times[-2])
+				delta_time.append([step_placement_times[-1] - step_placement_times[-2]])
 
 	return step_placement_frames, step_sequence, delta_time
 
@@ -389,7 +389,7 @@ class Chart:
 		except ValueError:
 			raise
 
-		self.step_time_features = torch.tensor(delta_time).unsqueeze(0)
+		self.step_time_features = torch.tensor(delta_time)
 
 		(self.placement_targets,
 		 self.first_frame,
