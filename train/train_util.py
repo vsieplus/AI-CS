@@ -154,7 +154,7 @@ def collate_charts(batch):
 		levels.append(chart.level)
 
 		# already tensors
-		step_sequence.append(chart.step_sequence)
+		step_sequence.append(torch.cat((chart.step_features, chart.step_time_features), dim=-1))
 		step_targets.append(chart.step_targets)
 
 		if chart.first_frame < first_frame:

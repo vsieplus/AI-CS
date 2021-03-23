@@ -5,7 +5,8 @@ import math
 
 import torch
 
-from hyper import NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES, MAX_ACTIVE_ARROWS, NUM_ACTIVE_STATES
+from hyper import (NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZES, 
+                   MAX_ACTIVE_ARROWS, NUM_ACTIVE_STATES, TIME_FEATURES)
 
 UCS_SSC_DICT = {
     '.': '0',   # no step
@@ -34,8 +35,8 @@ STATE_TO_UCS = {
 
 # convert a sequence of steps ['00100', '10120', ...] -> input tensor
 def sequence_to_tensor(sequence):
-    # shape [abs # of frames, 4 x # arrows (20 for single, 40 for double)]
-    #   (for each arrow, mark 1 of 4 possible states - off, step, hold, release)
+    # shape [abs # of frames, num arrow states * # arrows]
+    #   (for each arrow, mark 1 of n possible states - off, step, hold start, hold, release)
     #	(should be already converted to (reduced) UCS notation)
     # eg. ['X000H', '0X00W'] -> [[0, 1, 0, 0, 0, 0, 0, 0, ..., 0, 0, 1, 0] 
     #                             -downleft-   -upleft- ....   -downright-
@@ -153,7 +154,7 @@ def step_index_to_features(index, chart_type, special_tokens, device):
         return sequence_to_tensor([special_tokens[index]])
 
     # perform 'inverse' of step_sequence_to_targets()
-    features = torch.zeros(SELECTION_INPUT_SIZES[chart_type], dtype=torch.long, device=device)
+    features = torch.zeros(SELECTION_INPUT_SIZES[chart_type] - TIME_FEATURES, dtype=torch.long, device=device)
     num_arrows = features.size(0) // NUM_ARROW_STATES
     off_indices = torch.tensor([arrow * NUM_ARROW_STATES for arrow in range(num_arrows)], dtype=torch.long, device=device)
     features[off_indices] = 1
@@ -219,7 +220,7 @@ def get_state_indices(arrow_idx, arrow_states, chart_type):
     return all the vocabulary indices for states in which the arrow at arrow_idx has any
     of the given arrow_state(s)
     """
-    num_arrows = SELECTION_INPUT_SIZES[chart_type] // NUM_ARROW_STATES
+    num_arrows = (SELECTION_INPUT_SIZES[chart_type] - TIME_FEATURES) // NUM_ARROW_STATES
     vocab_size = SELECTION_VOCAB_SIZES[chart_type]
     step_states = set()
 

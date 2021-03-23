@@ -300,9 +300,10 @@ def permute_steps(steps, chart_type, permutation_type):
 def parse_notes(notes, chart_type, permutation_type, filetype):
 	# [# frames] track which (10 ms) chart frames have steps
 	step_placement_frames = []
+	step_placement_times = []
 
-	# [# frames, # step features] - sequence of non-empty steps with associated frame numbers
-	step_sequence = []
+	step_sequence = []   # sequence of non-empty steps
+	delta_time = []      # for each step, tuple of (time since last step, time until next step)
 
 	num_arrows = 5 if chart_type == 'pump-single' else 10
 
@@ -324,12 +325,23 @@ def parse_notes(notes, chart_type, permutation_type, filetype):
 		step_this_frame = STEP_PATTERNS.search(step_to_check)
 		if step_this_frame:
 			step_placement_frames.append(int(round(time * CHART_FRAME_RATE)))
+			step_placement_times.append(time)
 
-		# only store non-empty steps in the sequence
-		if step_this_frame:
+			# only store non-empty steps in the sequence
 			step_sequence.append(permute_steps(step_to_check, chart_type, permutation_type))
 
-	return step_placement_frames, step_sequence
+			# store time differences between steps
+			curr_idx = len(step_placement_times) - 2
+			if len(step_placement_times) == 2:
+				delta_time.append((0, time - step_placement_times[curr_idx]))
+			elif len(step_placement_times) > 2:
+				delta_time.append((step_placement_times[curr_idx] - step_placement_times[curr_idx - 1],
+								   time - step_placement_times[curr_idx]))
+
+	curr_idx = len(step_placement_times) - 1
+	delta_time.append((step_placement_times[curr_idx] - step_placement_times[curr_idx - 1], 0))
+
+	return step_placement_frames, step_sequence, delta_time
 
 def placement_frames_to_targets(placement_frames, audio_length, sample_rate):
 	# get chart frame numbers of step placements, [batch, placements (variable)]
@@ -390,25 +402,28 @@ class Chart:
 		self.permutation_type = permutation_type
 
 		try:
-			step_placement_frames, step_sequence = parse_notes(chart_attrs['notes'], self.chart_type, 
-															   self.permutation_type, self.filetype)
+			(step_placement_frames, 
+			 step_sequence,
+			 delta_time) =  parse_notes(chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
 		except ValueError:
 			raise
 
+		self.step_time_features = torch.tensor(delta_time)
+
 		(self.placement_targets,
-		 self.first_frame, 
+		 self.first_frame,
 		 self.last_frame) = placement_frames_to_targets(step_placement_frames, self.song.audio_feats.size(1), self.song.sample_rate)
 
-		self.step_sequence = sequence_to_tensor(step_sequence)
+		self.step_features = sequence_to_tensor(step_sequence)
 		(self.step_targets,
-		 self.n_special_tokens) = step_sequence_to_targets(self.step_sequence, self.chart_type, special_tokens)
+		 self.n_special_tokens) = step_sequence_to_targets(self.step_features, self.chart_type, special_tokens)
 
 		# ignore steps in sequence after song has ended
 		# (make sure length matches num of placement targets)
-		self.step_sequence = self.step_sequence[:self.placement_targets.sum()]
+		self.step_features = self.step_features[:self.placement_targets.sum()]
 		self.step_targets = self.step_targets[:self.placement_targets.sum()]
 
-		self.n_steps = self.step_sequence.size(0)
+		self.n_steps = self.step_features.size(0)
 		self.steps_per_second = self.n_steps / (self.song.n_minutes * 60)
 
 	# return tensor of audio feats for this chart

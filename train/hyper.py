@@ -54,6 +54,8 @@ SELECTION_HIDDEN_WEIGHT = 0.8
 NUM_SELECTION_LSTM_LAYERS = 2
 SELECTION_UNROLLING_LEN = 64
 
+TIME_FEATURES = 2
+
 # arrow states: 
 #   0 - OFF,
 #   1 - ON (regular step),
@@ -75,8 +77,8 @@ SELECTION_VOCAB_SIZES = {
 } 
 
 SELECTION_INPUT_SIZES = {
-    'pump-single': NUM_ARROW_STATES * 5,    #  NUM_ARROW_STATES (which state) per arrow
-    'pump-double': NUM_ARROW_STATES * 10,   #  ^^^^
+    'pump-single': NUM_ARROW_STATES * 5 + TIME_FEATURES,    #  NUM_ARROW_STATES (which state) per arrow
+    'pump-double': NUM_ARROW_STATES * 10 + TIME_FEATURES,   #  ^^^^
 }
 
 MAX_ACTIVE_ARROWS = {
