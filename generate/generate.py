@@ -355,7 +355,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
                     beams.append([[0], 0.0, hidden.clone(), cell.clone()])
 
                 candidates, curr_states = get_beam_candidates(selection_model, beams, b, placement_hidden, step_length, 
-                                                              num_arrows, hold_indices, chart_type, special_tokens, 
+                                                              num_arrows, hold_indices, chart_type, special_tokens, delta_time,
                                                               hold_filters, empty_filters, device)
                 
                 # if the last element in the sequence, keep the one with the best score
@@ -376,21 +376,20 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
                 next_token_feats = step_index_to_features(next_token_idx, chart_type, special_tokens, device)
                 next_token_str = step_features_to_str(next_token_feats)
                 next_token_str = filter_steps(next_token_str, hold_indices)
-
-                replace_steps(new_hold_indices, chart_data, i)
                 
                 chart_data.append([placement_time, next_token_str])
 
     return chart_data
 
 def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, step_length, 
-                        num_arrows, hold_indices, chart_type, special_tokens, 
+                        num_arrows, hold_indices, chart_type, special_tokens, delta_time,
                         hold_filters, empty_filters, device):
     # store expanded seqs, scores, + original beam idx
     candidates, curr_states = [], []
     for z, (seq, beam_score, hidden, cell) in enumerate(beams):
         curr_token = step_index_to_features(seq[-1], chart_type, special_tokens, device)
         curr_token = curr_token.unsqueeze(0).unsqueeze(0).float()
+        curr_token = torch.cat((curr_token, delta_time), dim=-1)
 
         logits, (hidden, cell) = selection_model(curr_token, placement_hidden, hidden, cell, step_length)
         curr_states.append((hidden, cell))    
@@ -426,24 +425,8 @@ def save_best_beam(best, placement_times, chart_data, chart_type, special_tokens
         token_feats = step_index_to_features(seq[m], chart_type, special_tokens, device)
         token_str = step_features_to_str(token_feats)
         token_str = filter_steps(token_str, hold_indices)
-
-        if m > 1:
-            replace_steps(new_holds, chart_data, m - 1)
         
         chart_data.append([placement_times[m - 1], token_str])
-
-def replace_steps(new_hold_indices, chart_data, i):
-    # replace steps ('X') immediately before holds ('H') as ('M')
-    if new_hold_indices:
-        prev_step = chart_data[i - 1][1] 
-        replacement = ''
-        for k in range(len(prev_step)):
-            if k in new_hold_indices:
-                replacement += 'M'
-            else:
-                replacement += prev_step[k]
-
-        chart_data[i - 1][1] = replacement
 
 def filter_steps(token_str, hold_indices):
     # filter out step exceptions + track holds and steps

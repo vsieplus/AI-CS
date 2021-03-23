@@ -389,7 +389,7 @@ class Chart:
 		except ValueError:
 			raise
 
-		self.step_time_features = torch.tensor(delta_time)
+		self.step_time_features = torch.tensor(delta_time).unsqueeze(0)
 
 		(self.placement_targets,
 		 self.first_frame,
