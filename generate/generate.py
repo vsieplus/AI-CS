@@ -14,7 +14,7 @@ from tqdm import trange
 import sys
 sys.path.append(os.path.join('..', 'train'))
 from hyper import (N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES,
-                   SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE, CHART_LEVEL_BINS)
+                   SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE, CHART_LEVEL_BINS, TIME_FEATURES)
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer import ArrowTransformer
 from extract_audio_feats import extract_audio_feats
@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--sampling', type=str, default='top-k', choices=['top-p', 'top-k', 'beam-search', 'greedy', 'multinom'], 
                         help='choose the sampling strategy to use when generating the step sequence')
     parser.add_argument('-k', type=int, default=15, help='Sample steps from the top k candidates if using top-k')
-    parser.add_argument('-p', type=float, default=0.075, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
+    parser.add_argument('-p', type=float, default=0.05, help='Sample steps from the smallest set of candidates with cumulative prob. > p')
     parser.add_argument('-b', type=int, default=25, help='Beam size for beam search')
 
     return parser.parse_args()
@@ -66,7 +66,7 @@ def get_filter_indices(chart_type):
         step_filters = {'pump-single': {}, 'pump-double': {}}
         for mode in step_filters:
             curr_hold_filters, curr_empty_filters = {}, {}
-            for j in range(SELECTION_INPUT_SIZES[mode] // NUM_ARROW_STATES):
+            for j in range((SELECTION_INPUT_SIZES[mode] - TIME_FEATURES) // NUM_ARROW_STATES):
                 curr_hold_filters[str(j)] = get_state_indices(j, [0, 1, 2], mode)  # filter 1
                 curr_empty_filters[str(j)] = get_state_indices(j, [3, 4], mode)    # filter 2-3
             
@@ -300,7 +300,7 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level, th
         logits, placement_hiddens, _ = placement_model(audio_feats, chart_feats, states, audio_length)
 
         # placement predictions - [batch=1, n_audio_frames] - 1 if a placement, 0 if empty
-        placements, probs = predict_placements(logits, [chart_level], audio_length, get_probs=True, thresholds=thresholds)
+        placements, probs = predict_placements(logits, [CHART_LEVEL_BINS[chart_level]], audio_length, get_probs=True, thresholds=thresholds)
 
         placements = placements.squeeze(0)
         probs = probs.squeeze(0).tolist()
@@ -322,7 +322,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
     # store pairs of time (s) and step vocab indices
     chart_data = []
 
-    num_arrows = n_step_features // NUM_ARROW_STATES
+    num_arrows = (n_step_features - TIME_FEATURES) // NUM_ARROW_STATES
 
     hold_filters, empty_filters = get_filter_indices(chart_type)
 
@@ -340,14 +340,14 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
     placement_times = []
 
     with torch.no_grad():
-        start_token = torch.zeros(1, 1, n_step_features, device=device)
+        start_token = torch.zeros(1, 1, n_step_features - 1, device=device)
         hidden, cell = selection_model.initStates(batch_size=1, device=device)
     
         for i in trange(num_placements):
             placement_melframe = placement_frames[i].item()
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
-            delta_time = torch.tensor(placement_times[-1] - placement_times[-2] if i > 1 else 0).unsqueeze(0).unsqueeze(0).to(device)
+            delta_time = torch.tensor([placement_times[-1] - placement_times[-2]] if i > 1 else [0]).unsqueeze(0).unsqueeze(0).to(device)
             placement_hidden = placement_hiddens[i] if conditioned and i > 0 else None
             
             if sampling == 'beam-search':
@@ -407,7 +407,7 @@ def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, st
 def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, num_arrows, hold_filters, empty_filters):
     # logits: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    dist = filter_step_dist(dist, hold_indices[beam_idx], num_arrows, hold_filters, empty_filters)
+    #dist = filter_step_dist(dist, hold_indices[beam_idx], num_arrows, hold_filters, empty_filters)
     expanded = []
     for j in range(logits.size(0)):
         new_seq = sequence + [j]
@@ -467,7 +467,7 @@ def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters,
     """predict the next step given model logits and a sampling strategy"""
     # shape: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    dist = filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters)
+    #dist = filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters)
     
     if sampling == 'top-k':
         # sample from top k probabilites + corresponding indices (sorted)    
@@ -492,7 +492,7 @@ def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters,
         logits[indices_to_remove] = float('-inf')
 
         filtered_dist = torch.nn.functional.softmax(logits, dim=-1)
-        filtered_dist = filter_step_dist(filtered_dist, hold_indices, num_arrows, hold_filters, empty_filters)
+        #filtered_dist = filter_step_dist(filtered_dist, hold_indices, num_arrows, hold_filters, empty_filters)
         pred_idx = torch.multinomial(filtered_dist, num_samples=1)              
     elif sampling == 'greedy':
         # take the most likely token
