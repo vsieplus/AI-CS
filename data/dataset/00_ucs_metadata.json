@@ -486,12 +486,6 @@
     "bpms": "150",
     "version": "premiere"
   },
-  "CS216": {
-    "title": "Enhance Reality",
-    "artist": "Matduke",
-    "bpms": "170",
-    "version": "prime"
-  },
   "CS274": {
     "title": "ESCAPE",
     "artist": "D_AAN",
@@ -1671,7 +1665,7 @@
   "CS272": {
     "title": "Visual Dream II (In Fiction)",
     "artist": "Aragon",
-    "bpms": "180",
+    "bpms": "175",
     "version": "prime2"
   },
   "CS023": {

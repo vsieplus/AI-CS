@@ -29,18 +29,16 @@ selection models can be trained to either generate singles or doubles charts (bu
 in DDC, step selection is treated as a language modeling task, where we aim to predict the next step(s), 
 given the previous sequence of steps. In our case, the vocabulary of the 'language' consists of the different possible states of the dance pad.
 
-In particular, at any given frame we can classify the state of an arrow on the dance pad in 4 different ways: Off, On, Held, and Released. 
-For singles where the dance pad uses 5 arrows, the vocabulary size is 4<sup>5</sup> = 1,024.
-For doubles, where all 10 arrows are used, this number grows quite large to 4<sup>10</sup> = 1,048,576.
+In particular, at any given frame we can classify the state of an arrow on the dance pad in 5 different ways: Off, On, and starting, maintaining, or releasing a hold. 
+For singles where the dance pad uses 5 arrows, the base vocabulary size is 5<sup>5</sup> = 3,125..
+For doubles, where all 10 arrows are used, this number grows quite large to 5<sup>10</sup> = 9,765,625.
 While using the entire vocabulary space allows every possible combination of arrows, a significant portion of
 these arrangements are likely never used (e.g. most arrangements of 5+ arrows at a time). For memory and speed
-optimizations, we decide to truncate the vocabulary for doubles primarily to step arrangements of up to 4 arrows at
-any one time. We do however allow certain exceptions to be considered if they appear in the training data, 
-such as steps from charts like Another Truth D17/18, Hi-Bi D20, Achluoias D26, etc. where more than 4 arrows are 
-activated (on, hold, or release) at any given time. In this case, these special tokens are appended to the base vocabulary.
-Altogether this gives a much smaller base vocab size of
-
-<img src="https://latex.codecogs.com/gif.latex?4%5E%7B10%7D%20-%20%5Csum_%7Bi%3D5%7D%5E%7B10%7D%20%7B10%20%5Cchoose%20i%7D%20%5Ccdot%203%5E%7Bi%7D%20%3D%2020%2C686">
+optimizations, we decide to truncate the vocabulary for doubles to step arrangements of up to 4 active arrows at
+a time and for singles up to 3 active arrows at a time. We do however allow certain exceptions to be considered if they appear in the training data, 
+such as steps from charts like Another Truth D17/18, Hi-Bi D20, Achluoias D26, etc. In this case, these special 
+tokens are appended to the base vocabulary. Altogether this gives much smaller base vocabulary sizes and avoids the
+need to consider many unlikely step combinations.
 
 The primary step selection model is adapted from the LSTM RNN architecture presented in DDC, section 4.4. We make the
 addition of providing the ability for the model to take into account the LSTM outputs of the placement model, using a normalized 
@@ -78,3 +76,6 @@ python train_rnns.py --load_checkpoint='models/single/test'
 python train_rnns.py --load_checkpoint='models/single/test --fine_tune --dataset_name='my_ucs_charts'
 
 ```
+
+An example pretrained model is provided for reference to show how a model directory should look with the relevant
+files under `models/single/test`.
