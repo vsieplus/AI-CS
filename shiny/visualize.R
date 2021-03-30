@@ -9,7 +9,7 @@ library(av)
 
 ## Chart Processing (util functions) ####################################
 library(reticulate)
-use_python('/home/vsie/anaconda3/bin/python3.8')
+use_python('/home/ryan/anaconda3/bin/python3.8')
 use_condaenv('aics')
 parse <- reticulate::import_from_path('parse', path = file.path('..', 'data', 'processing'))
 

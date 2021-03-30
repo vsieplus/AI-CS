@@ -4,10 +4,11 @@ library(rjson)
 library(reticulate) 
 
 # change to your python path/conda environment
-use_python('/home/vsie/anaconda3/bin/python3.8')
+use_python('/home/ryan/anaconda3/bin/python3.8')
 use_condaenv('aics')
 
 generate <- import_from_path('generate', path = file.path('..', 'generate'))
+hyper <- import_from_path('hyper', path = file.path('..', 'train'))
 
 CHART_LEVELS <- list('single' = 26, 'double' = 28)
 
@@ -115,7 +116,8 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
     updateProgress(value = 0.3, detail = 'Generating step placements')
   }
   
-  chartData[['threshold']] <- thresholds[[as.character(level)]]
+  levelGroup <- hyper$CHART_LEVEL_BINS[[level]]
+  chartData[['threshold']] <- thresholds[[as.character(levelGroup)]]
  
   chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
                                                   as.integer(level), thresholds, inputSize)
