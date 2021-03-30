@@ -50,8 +50,8 @@ the selection model relies solely on the step sequences, and has no input from t
 The second is an Arrow Transformer, which uses a relative self-attention mechanism. This mechanism aims to enable the model
 to more meaningfully capture long-distance dependencies across entire step sequences. In many human-written step charts, elements and 'motifs'
 are often repeated, contrasted, extended, and built upon throughout the chart. These types of relationships are also often present in the music itself,
-and good step charts will often mirror them well with the sequence of steps as well. The architecture is largely similar to the one presented in 
-[Music Transformer](https://arxiv.org/abs/1809.04281). [WIP..]
+and good step charts will often mirror them well with the sequence of steps. The architecture is largely similar to the one presented in 
+[Music Transformer](https://arxiv.org/abs/1809.04281).
 
 ### Examples
 
@@ -62,19 +62,19 @@ Train the CLSTM/RNN placement and selection models:
 # model saved > ./models/{single/double}/test/
 # Some options:
 #   --cpu to force train on cpu
-#   --conditioning to use placement model conditioning
-python train_rnns.py --dataset_name=test
+#   --conditioning to use placement model conditioning with RNN selection model
+#   --transformer to use the transformer model for step selection
+python train.py --dataset_name=test
 
 # visualize training stats/metrics (requires tensorboard)
 tensorboard --logdir='models/single/test/runs'
 
 # To resume training from a checkpoint 
-python train_rnns.py --load_checkpoint='models/single/test'
+python train.py --load_checkpoint='models/single/test'
 
 # To fine-tune a model on a new training set
 # new model saved > ./models/{single|double}/my_ucs_charts/
-python train_rnns.py --load_checkpoint='models/single/test --fine_tune --dataset_name='my_ucs_charts'
-
+python train.py --load_checkpoint='models/single/test --fine_tune --dataset_name='my_ucs_charts'
 ```
 
 An example pretrained model is provided for reference to show how a model directory should look with the relevant

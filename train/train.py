@@ -18,10 +18,11 @@ from sklearn.metrics import average_precision_score
 
 from hyper import *
 from arrow_rnns import PlacementCLSTM, SelectionRNN
+from arrow_transformer import ArrowTransformer
 from optimize_thresholds import optimize_placement_thresholds
 from predict_placements import predict_placements
 from stepchart import StepchartDataset
-from train_util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model, get_dataloader
+from train_util import report_memory, SummaryWriter, load_save, save_checkpoint, save_model, get_dataloader, TransformerLoss
 
 ABS_PATH = str(Path(__file__).parent.absolute())
 DATASETS_DIR = os.path.join(ABS_PATH, '../data/dataset/subsets')
@@ -35,7 +36,8 @@ def parse_args() -> argparse.Namespace:
                         help="""Specify custom output directory to save models to. If blank, will save in ./models/dataset_name/""")
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load models from the specified checkpoint')
     parser.add_argument('--fine_tune', action='store_true', default=False, help=('Use this option to (re)train a model that'
-        'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
+                        'has already been trained starting from default epoch/validation loss; Otherwise resume training from when stopped'))
+    parser.add_argument('--transformer', action='store_true', default=False, help='train a model using the transformer model for step selection')
     parser.add_argument('--conditioning', action='store_true', default=False, help='train a model with placement model conditioning')
     parser.add_argument('--load_to_memory', action='store_true', default=False, help='Load entire dataset to memory')
     parser.add_argument('--cpu', action='store_true', default=False, help='use this to use cpu to train; default uses gpu if available')
@@ -230,7 +232,25 @@ def get_selection_accuracy(logits, targets, seq_lengths, step):
     
     return correct / total_preds if total_preds != 0 else 0
 
-def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens, do_train):
+def run_transformer_batch(transformer, optimizer, criterion, batch, device, clstm_hiddens, do_train):
+    if do_train:
+        transformer.train()
+    else:
+        transformer.eval()
+
+    do_condition = clstm_hiddens is not None
+
+    total_accuracy = 0
+    total_loss = 0
+
+    # TODO ...
+
+    # avg_loss = total_loss / len(batch)
+    # avg_acc = total_accuracy / len(batch)
+
+    return avg_loss, avg_acc
+
+def run_srnn_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens, do_train):
     if do_train:
         rnn.train()
     else:
@@ -332,14 +352,16 @@ def run_selection_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens,
 
     return avg_loss, avg_acc
 
-def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion,
-             device, writer, curr_validation, do_condition):
+def evaluate(placement_clstm, selection_model, data_iter, p_criterion, s_criterion,
+             device, writer, curr_validation, do_condition, use_transformer):
     total_p_loss = 0
     total_s_loss = 0
     total_p_acc = 0
     total_s_acc = 0
 
     total_p_precision = 0
+
+    run_selection_batch = run_transformer_batch if use_transformer else run_srnn_batch
 
     with torch.no_grad():
        for i, batch in enumerate(data_iter):
@@ -353,8 +375,7 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
             total_p_acc += p_acc
             total_p_precision += p_precision
 
-            s_loss, s_acc = run_selection_batch(selection_rnn, None, s_criterion, batch, device,
-                                                hiddens, do_train=False)
+            s_loss, s_acc = run_selection_batch(selection_model, None, s_criterion, batch, device, hiddens, do_train=False)
             
             total_s_loss += s_loss
             total_s_acc += s_acc
@@ -373,16 +394,20 @@ def evaluate(placement_clstm, selection_rnn, data_iter, p_criterion, s_criterion
 
 # full training process from placement -> selection
 def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, load_checkpoint, fine_tune, 
-               dataset, do_condition, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=1):
+               dataset, do_condition, use_transformer, early_stopping=True, print_every_x_epoch=1, validate_every_x_epoch=1):
     # setup or load models, optimizers
     placement_clstm = PlacementCLSTM(PLACEMENT_CHANNELS, PLACEMENT_FILTERS, PLACEMENT_KERNEL_SIZES,
                                      PLACEMENT_POOL_KERNEL, PLACEMENT_POOL_STRIDE, NUM_PLACEMENT_LSTM_LAYERS,
                                      PLACEMENT_INPUT_SIZE, HIDDEN_SIZE).to(device)
     placement_optim = optim.Adam(placement_clstm.parameters(), lr=PLACEMENT_LR)
 
-    selection_rnn = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
-                                 dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
-    selection_optim = optim.Adam(selection_rnn.parameters(), lr=SELECTION_LR)
+    if use_transformer:
+        selection_model = ArrowTransformer(EMBED_DIM, dataset.vocab_size, NUM_TRANSFORMER_LAYERS, MAX_SEQ_LEN, 
+                                           PAD_IDX, TRANSFORMER_DROPOUT)
+    else:
+        selection_model = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
+                                       dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
+    selection_optim = optim.Adam(selection_model.parameters(), lr=SELECTION_LR)
 
     # load model, optimizer states if resuming training
     best_placement_valid_loss = float('inf')
@@ -391,14 +416,17 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     start_epoch = 0
     start_epoch_batch = 0
     train_clstm = True
-    train_srnn = True
+    train_selection = True
+    selection_save = TRANSFORMER_SAVE if use_transformer else SRNN_SAVE
+    run_selection_batch = run_transformer_batch if use_transformer else run_srnn_batch
+    selection_criterion = TransformerLoss(ignore_index=PAD_IDX) if use_transformer else SRNN_CRITERION
     sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M')
   
     if load_checkpoint:
-        checkpoint = load_save(load_checkpoint, fine_tune, placement_clstm, selection_rnn, device)
+        checkpoint = load_save(load_checkpoint, fine_tune, placement_clstm, selection_model, device)
         if checkpoint:
             (start_epoch, start_epoch_batch, best_placement_valid_loss, best_placement_precision,
-             best_selection_valid_loss, train_clstm, train_srnn, sub_logdir) = checkpoint
+             best_selection_valid_loss, train_clstm, train_selection, sub_logdir) = checkpoint
 
     writer = SummaryWriter(log_dir=os.path.join(save_dir, 'runs', sub_logdir))
 
@@ -430,10 +458,10 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                                                       batch, device, writer, do_condition, do_train=train_clstm, 
                                                       curr_step=step)
 
-            with torch.set_grad_enabled(train_srnn):
+            with torch.set_grad_enabled(train_selection):
                 (selection_loss,
-                 selection_acc) = run_selection_batch(selection_rnn, selection_optim, SELECTION_CRITERION,
-                                                      batch, device, clstm_hiddens, do_train=train_srnn)
+                 selection_acc) = run_selection_batch(selection_model, selection_optim, selection_criterion,
+                                                      batch, device, clstm_hiddens, do_train=train_selection)
 
             epoch_p_loss += placement_loss
             epoch_p_precision += placement_precision
@@ -447,11 +475,11 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
             if train_clstm:
                 save_model(placement_clstm, save_dir, CLSTM_SAVE)
-            if train_srnn:
-                save_model(selection_rnn, save_dir, SRNN_SAVE)       
+            if train_selection:
+                save_model(selection_model, save_dir, selection_save)       
 
             save_checkpoint(epoch, i, best_placement_valid_loss, best_placement_precision,
-                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
+                            best_selection_valid_loss, train_clstm, train_selection, save_dir)
 
         epoch_p_loss = epoch_p_loss / len(train_iter)
         epoch_p_precision = epoch_p_precision / len(train_iter)
@@ -467,12 +495,12 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
              placement_valid_acc,
              selection_valid_loss,
              selection_valid_acc,
-             placement_precision) = evaluate(placement_clstm, selection_rnn, valid_iter, 
-                                             PLACEMENT_CRITERION, SELECTION_CRITERION, device, 
-                                             writer, epoch / validate_every_x_epoch, do_condition)
+             placement_precision) = evaluate(placement_clstm, selection_model, valid_iter, 
+                                             PLACEMENT_CRITERION, selection_criterion, device, 
+                                             writer, epoch / validate_every_x_epoch, do_condition, use_transformer)
                 
             print(f'\tAvg. validation placement loss per frame: {placement_valid_loss:.5f}')
-            print(f'\tAvg. training placement precision: {placement_precision:.5f}')
+            print(f'\tAvg. validation placement precision: {placement_precision:.5f}')
             print(f'\tAvg. validation selection loss per frame: {selection_valid_loss:.5f}')
 
             # track best performing model(s) or save every epoch
@@ -490,29 +518,29 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
                         print("Placement validation loss increased, stopping CLSTM training")
                         train_clstm = False
 
-                if train_srnn:
+                if train_selection:
                     if better_selection:
                         best_selection_valid_loss = selection_valid_loss
-                        save_model(selection_rnn, save_dir, SRNN_SAVE)
+                        save_model(selection_model, save_dir, selection_save)
                     else:
-                        print("Placement validation loss increased, stopping SRNN training")
-                        train_srnn = False
+                        print("Selection validation loss increased, stopping selection model training")
+                        train_selection = False
 
-                if not train_clstm and not train_srnn:
+                if not train_clstm and not train_selection:
                     print("Both early stopping criterion met. Stopping early..")
                     break
 
             save_checkpoint(epoch + 1, 0, best_placement_valid_loss, best_placement_precision,
-                            best_selection_valid_loss, train_clstm, train_srnn, save_dir)
+                            best_selection_valid_loss, train_clstm, train_selection, save_dir)
 
     # evaluate on test set
     (placement_test_loss,
      placement_test_acc,
      selection_test_loss,
      selection_test_acc,
-     placement_precision) = evaluate(placement_clstm, selection_rnn, test_iter, 
-                                     PLACEMENT_CRITERION, SELECTION_CRITERION,
-                                     device, writer, -1, do_condition)
+     placement_precision) = evaluate(placement_clstm, selection_model, test_iter, 
+                                     PLACEMENT_CRITERION, selection_criterion,
+                                     device, writer, -1, do_condition, use_transformer)
 
     # save training summary stats to json file
     # load initial summary
@@ -528,7 +556,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         'selection_test_accuracy': selection_test_acc,
     }
 
-    summary_json = log_training_stats(writer, dataset, summary_json, do_condition)
+    summary_json = log_training_stats(writer, dataset, summary_json, do_condition, use_transformer)
 
     with open(os.path.join(save_dir, SUMMARY_SAVE), 'w') as f:
         f.write(json.dumps(summary_json, indent=2))
@@ -540,7 +568,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
         f.write(json.dumps(thresholds, indent=2))
 
 
-def log_training_stats(writer, dataset, summary_json, conditioning):
+def log_training_stats(writer, dataset, summary_json, conditioning, transformer):
     if dataset.computed_stats:
         summary_json = {
             **summary_json,
@@ -562,7 +590,7 @@ def log_training_stats(writer, dataset, summary_json, conditioning):
         'hidden_size': HIDDEN_SIZE,
         'placement_unroll': PLACEMENT_UNROLLING_LEN,
         'selection_unroll': SELECTION_UNROLLING_LEN,
-        'selection_hidden_wt': SELECTION_HIDDEN_WEIGHT
+        'selection_hidden_wt': SELECTION_HIDDEN_WEIGHT if conditioning else 0
     }
 
     # add other dataset text values
@@ -585,9 +613,12 @@ def log_training_stats(writer, dataset, summary_json, conditioning):
         'placement_pool_stride': PLACEMENT_POOL_STRIDE,
         'placement_lstm_layers': NUM_PLACEMENT_LSTM_LAYERS,
         'placement_input_size': PLACEMENT_INPUT_SIZE,
-        'selection_lstm_layers': NUM_SELECTION_LSTM_LAYERS,
-        'selection_input_size': SELECTION_INPUT_SIZES[dataset.chart_type],
-        'type': 'rnns',
+        'selection_lstm_layers': NUM_SELECTION_LSTM_LAYERS if not transformer else 0,
+        'selection_input_size': SELECTION_INPUT_SIZES[dataset.chart_type] if not transformer else 0,
+        'embed_dim': EMBED_DIM if transformer else 0,
+        'selection_transformer_layers': NUM_TRANSFORMER_LAYERS if transformer else 0,
+        'transformer_dropout': TRANSFORMER_DROPOUT if transformer else 0,
+        'type': 'transformer' if transformer else 'rnns',
         'name': dataset.name,
         'chart_type': dataset.chart_type,
         'song_types': dataset.songtypes,
@@ -652,14 +683,16 @@ def main():
 
     if first_dataset_load:
         summary_json = {'train_examples': len(train_indices), 'valid_examples': len(valid_indices),
-                        'test_examples': len(test_indices), 'conditioning': args.conditioning }
-        summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json, conditioning=args.conditioning)
+                        'test_examples': len(test_indices), 'conditioning': args.conditioning}
+        summary_json = log_training_stats(writer=None, dataset=dataset, summary_json=summary_json, 
+                                          conditioning=args.conditioning, transformer=args.transformer)
         with open(summary_path, 'w') as f:
             f.write(json.dumps(summary_json, indent=2))
     else:
         with open(summary_path, 'r') as f:
             summary_json = json.loads(f.read())
         args.conditioning = summary_json['conditioning']
+        args.transformer = summary_json['type'] == 'transformer'
         print('Conditioning:', args.conditioning)
 
     # save special tokens for dataset vocabulary if needed + default thresholds
@@ -681,7 +714,7 @@ def main():
 
 
     run_models(train_iter, valid_iter, test_iter, NUM_EPOCHS, device, args.save_dir,
-               args.load_checkpoint, args.fine_tune, dataset, args.conditioning)
+               args.load_checkpoint, args.fine_tune, dataset, args.conditioning, args.transformer)
 
 if __name__ == '__main__':
     main()

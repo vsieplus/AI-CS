@@ -4,13 +4,14 @@ import gc
 import os
 
 import torch
+from torch.nn import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.nn.utils.rnn import pad_sequence
 
-from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, CHECKPOINT_SAVE, PAD_IDX
+from hyper import HOP_LENGTH, CHART_FRAME_RATE, CLSTM_SAVE, SRNN_SAVE, TRANSFORMER_SAVE, CHECKPOINT_SAVE, PAD_IDX
 
 # avoid subdirs clutter when adding hparams with summary writer
 class SummaryWriter(SummaryWriter):
@@ -56,7 +57,7 @@ def convert_melframe_to_secs(melframe, sample_rate, hop_length=HOP_LENGTH):
 ## Model saving/loading #####################################    
     
 def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, best_placement_precision,
-                    best_selection_valid_loss, train_clstm, train_srnn, save_dir):
+                    best_selection_valid_loss, train_clstm, train_selection, save_dir):
     out_path = os.path.join(save_dir, CHECKPOINT_SAVE)
     
     print(f'\tSaving checkpoint to {out_path}')
@@ -67,7 +68,7 @@ def save_checkpoint(epoch, curr_epoch_batch, best_placement_valid_loss, best_pla
         'best_placement_precision': best_placement_precision,
         'best_selection_valid_loss': best_selection_valid_loss,
         'train_clstm': train_clstm,
-        'train_srnn': train_srnn,
+        'train_selection': train_selection,
     }, out_path)
 
 def save_model(model, save_dir, model_filename):
@@ -76,19 +77,19 @@ def save_model(model, save_dir, model_filename):
 
     torch.save(model.state_dict(), out_path)
 
-def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
+def load_save(save_dir, fine_tune, placement_clstm, selection_model, use_transformer, device):
     print(f'Loading checkpoint from {save_dir}...')
 
     clstm_path = os.path.join(save_dir, CLSTM_SAVE)
-    srnn_path = os.path.join(save_dir, SRNN_SAVE)
+    sm_path = os.path.join(save_dir, TRANSFORMER_SAVE if use_transformer else SRNN_SAVE)
     
     if os.path.isfile(clstm_path) and placement_clstm is not None:
         placement_clstm.load_state_dict(torch.load(clstm_path, map_location=device))
     else:
         print(f'No saved {CLSTM_SAVE} file found in {save_dir}, starting from base model')
 
-    if os.path.isfile(srnn_path) and selection_rnn is not None:
-        selection_rnn.load_state_dict(torch.load(srnn_path, map_location=device))
+    if os.path.isfile(sm_path) and selection_model is not None:
+        selection_model.load_state_dict(torch.load(sm_path, map_location=device))
     else:
         print(f'No saved {SRNN_SAVE} file found in {save_dir}, starting from base model')
 
@@ -102,7 +103,7 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
         best_placement_valid_loss = checkpoint['best_placement_valid_loss']
         best_selection_valid_loss = checkpoint['best_selection_valid_loss']
         train_clstm = checkpoint['train_clstm']
-        train_srnn = checkpoint['train_srnn']
+        train_selection = checkpoint['train_selection']
     
         new_model = 'best_placement_precision' in checkpoint
         best_placement_precision = checkpoint['best_placement_precision'] if new_model else 0
@@ -112,7 +113,7 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_rnn, device):
         sub_logdir = [d for d in logdirs if os.path.isdir(os.path.join(save_dir, 'runs', d))][-1]
 
         return (start_epoch, start_epoch_batch, best_placement_valid_loss, best_placement_precision,
-                best_selection_valid_loss, train_clstm, train_srnn, sub_logdir)
+                best_selection_valid_loss, train_clstm, train_selection, sub_logdir)
     else:
         return None
 
@@ -193,3 +194,24 @@ def collate_charts(batch):
 def get_dataloader(dataset, batch_size, indices):
     index_sampler = SubsetRandomSampler(indices)
     return DataLoader(dataset, batch_size=batch_size, collate_fn=collate_charts, sampler=index_sampler)
+
+
+# utilities for transformer training
+# adapted from https://github.com/jason9693/MusicTransformer-pytorch
+class TransformerLoss(CrossEntropyLoss):
+    def __init__(self, ignore_index, reduction='mean'):
+        self.reduction = reduction
+        self.ignore_index = ignore_index
+        super().__init__()
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.to(torch.long)
+        mask = (target != self.ignore_index).to(input.device, dtype=torch.long)
+        not_masked_length = mask.to(torch.int).sum()
+        input = input.permute(0, -1, -2)
+        _loss = super().forward(input, target)
+        _loss *= mask.to(_loss.dtype)
+        return _loss.sum() / not_masked_length
+
+    def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return self.forward(input, target)
