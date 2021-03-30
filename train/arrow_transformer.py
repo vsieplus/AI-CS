@@ -1,8 +1,8 @@
 # implementation of an 'arrow' transformer model with pytorch for step selection
-# Implementation adapted from https://github.com/jason9693/MusicTransformer-pytorch
 # architecture ideas drawn from
 #   transformers/other attention based mechanisms in nlp: arxiv.org/abs/1706.03762
 #   music transformer: arxiv.org/abs/1809.04281
+# Implementation adapted from https://github.com/jason9693/MusicTransformer-pytorch
 
 # Model Description (see paper for more detailed/formal definition)
 
@@ -10,6 +10,7 @@ import math
 import numpy as np
 
 import torch
+import torch.distributions as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -19,12 +20,77 @@ def sequence_mask(lengths, max_length=None):
     x = torch.arange(max_length, dtype=length.dtype, device=length.device)
     return x.unsqueeze(0) < length.unsqueeze(1)
 
+def get_masked_with_pad_tensor(size, src, trg, pad_token):
+    src = src[:, None, None, :]
+    trg = trg[:, None, None, :]
+    src_pad_tensor = torch.ones_like(src).to(src.device.type) * pad_token
+    src_mask = torch.equal(src, src_pad_tensor)
+    trg_mask = torch.equal(src, src_pad_tensor)
+    if trg is not None:
+        trg_pad_tensor = torch.ones_like(trg).to(trg.device.type) * pad_token
+        dec_trg_mask = trg == trg_pad_tensor
+        # boolean reversing i.e) True * -1 + 1 = False
+        seq_mask = ~sequence_mask(torch.arange(1, size+1).to(trg.device), size)
+        # look_ahead_mask = torch.max(dec_trg_mask, seq_mask)
+        look_ahead_mask = dec_trg_mask | seq_mask
+
+    else:
+        trg_mask = None
+        look_ahead_mask = None
+
+    return src_mask, trg_mask, look_ahead_mask
+
 class ArrowTransformer(nn.Module):
-    def __init__(self):
+    def __init__(self, embed_dim, vocab_size, num_layers, max_seq, pad_token, dropout=0.2):
         super().__init__()
 
-    def forward(self):
-        pass
+        self.infer = False
+
+        self.embed_dim = embed_dim
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.max_seq = max_seq
+        self.pad_token = pad_token
+
+        self.Decoder = Encoder(self.num_layers, self.embed_dim, self.vocab_size, dropout, self.max_seq)
+        self.fc = nn.Linear(self.embed_dim, self.vocab_size)
+
+    def forward(self, x, length=None):
+        if not self.infer:
+            _, _, mask = get_masked_with_pad_tensor(self.max_seq, x, x, self.pad_token)
+            decoded, w = self.Decoder(x, mask)
+            fc = self.fc(decoded)
+
+            return (fc.contiguous(), [weight.contiguous() for weight in w])
+        else:
+            return self.generate(x, length, None).continguous().tolist()
+
+    def generate(self, prior, length=2048):
+        decoded = prior
+        outputs = prior
+
+        for i in range(length):
+            _, _, mask = get_masked_with_pad_tensor(decoded.size(1), decoded, decoded, self.pad_token)
+
+            result, _ = self.Decoder(decoded, mask)
+            result = self.fc(result)
+            result = result.softmax(dim=-1)
+
+            pdf = dist.OneHotCategorical(probs=result[:, -1])
+            result = pdf.sample().argmax(-1).unsqueeze(-1)
+
+            decoded = torch.cat((decoded, result), dim=-1)
+            outputs = torch.cat((outputs, result), dim=-1)
+
+            del mask
+
+        outputs = outputs[0]
+
+        return outputs
+
+    def test(self):
+        self.eval()
+        self.infer = True
 
 class PositionEmbedding(nn.Module):
     """Encode the position of sequence elements by adding a position embedding"""
