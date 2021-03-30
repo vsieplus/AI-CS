@@ -75,9 +75,12 @@ server <- function(input, output, session) {
 
       # can access reactive 'chartData' list in here      
       # use temp directory before zipping file
-      origDir = setwd(tempdir())
+      dlDir = tempfile()
+      dir.create(dlDir)
+      origDir = setwd(dlDir)
+      on.exit(unlink(dlDir, recursive = TRUE, force = TRUE))
       on.exit(setwd(origDir))
-      
+
       if(length(chartData()[['saveFormats']]) > 1) {
         saveFormat = 'both'
       } else {
@@ -87,7 +90,6 @@ server <- function(input, output, session) {
       generate$save_chart(chartData()[['notes']], chartData()[['chartType']], chartData()[['level']],
                           saveFormat, chartData()[['bpm']], chartData()[['title']], chartData()[['artist']],
                           chartData()[['audioPath']], chartData()[['name']], '.')
-
       zip(file, list.files('.', pattern = '(\\.ucs|\\.mp3|\\.ssc)'))  
     }
   )
