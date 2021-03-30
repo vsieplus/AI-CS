@@ -1,17 +1,17 @@
 {
-  "train_examples": 222,
-  "valid_examples": 33,
-  "test_examples": 24,
+  "train_examples": 3384,
+  "valid_examples": 380,
+  "test_examples": 360,
   "conditioning": false,
-  "total_charts": 279,
-  "unique_charts": 93,
-  "unique_songs": 75,
-  "audio_hours": 2.342394074074073,
-  "total_steps": 323559,
+  "total_charts": 4140,
+  "unique_charts": 1035,
+  "unique_songs": 205,
+  "audio_hours": 6.563419622071052,
+  "total_steps": 2057288,
   "min_level": 1,
   "max_level": 28,
-  "avg_steps_per_second": 10.305666486145066,
-  "vocab_size": 881,
+  "avg_steps_per_second": 4.309294603489291,
+  "vocab_size": 822,
   "placement_channels": [
     3,
     10
@@ -43,27 +43,21 @@
   "selection_lstm_layers": 2,
   "selection_input_size": 26,
   "type": "rnns",
-  "name": "kucs1",
+  "name": "aicsv1_1",
   "chart_type": "pump-single",
   "song_types": [
-    "arcade",
-    "fullsong",
-    "remix",
-    "shortcut"
+    "arcade"
   ],
-  "step_artists": [
-    "inso",
-    "wisey_",
-    "happenso",
-    "jpiu925",
-    "midohazu"
-  ],
+  "step_artists": [],
   "packs": [
-    "kucs1"
+    "16_FIESTA2",
+    "17_PRIME",
+    "18_PRIME2"
   ],
   "permutations": [
     "flip",
     "mirror",
+    "flip_mirror",
     ""
   ],
   "placement_lr": 0.001,
@@ -74,9 +68,9 @@
   "selection_unroll": 64,
   "selection_hidden_wt": 0.8,
   "epochs_trained": 25,
-  "placement_test_loss": 39.23382908365001,
-  "placement_test_accuracy": 0.9016517674589682,
-  "placement_test_precision": 0.10656686669644158,
-  "selection_test_loss": 5.539591850465783,
-  "selection_test_accuracy": 0.13370581708670276
+  "placement_test_loss": 26.50264284123226,
+  "placement_test_accuracy": 0.9465598731229518,
+  "placement_test_precision": 0.06877866710530259,
+  "selection_test_loss": 3.894915028166434,
+  "selection_test_accuracy": 0.4850133850799773
 }
