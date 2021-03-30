@@ -214,7 +214,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
         
         for i, (beatsplit, _, notes) in enumerate(chart_sections):
             if notes:
-                chart_txt += f':BPM={display_bpm}\n:Delay=0\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
+                chart_txt += f':BPM={display_bpm}\n:Delay=-100\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
                 chart_txt += '\n'.join(notes) + '\n'
 
         chart_fp = audio_filename + '.ucs'
@@ -515,7 +515,7 @@ def get_gen_config(model_summary, model_dir, device=torch.device('cpu')):
                                        model_summary['selection_hidden_wt']).to(device)
 
         # loads the state dicts from the .bin files in model_dir/
-        train_util.load_save(model_dir, False, placement_model, selection_model, device)
+        train_util.load_save(model_dir, False, placement_model, selection_model, False, device)
     elif model_summary['type'] == 'transformer':
         pass
 

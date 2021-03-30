@@ -1,0 +1,7 @@
+Short-term:
+    - fix step distribution filtering for new step representation
+    - finish implementing training for transformer step selection model
+
+Long-term:
+    - brainstorm new representations of a 'stepchart'
+    - experiment with ways to provide audio context during step selection
