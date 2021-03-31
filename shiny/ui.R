@@ -42,6 +42,8 @@ ui <- navbarPage(
         fileInput('audio_file', 'Upload audio'),
         textInput('song_title', 'Song Title: '),
         textInput('artist', 'Artist: '),
+
+        sliderInput('placement_threshold', 'Placement Threshold:', value = 0.5, min = 0, max = 1, step = 0.01),
       
         side_by_side(numericInput('bpm', 'BPM (optional):', min = 0, value = 150, width = '120px')),
         side_by_side(numericInput('topk_k', 'k', value = 20, min = 0, max = 1024, width = '120px'), second = TRUE),

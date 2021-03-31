@@ -54,7 +54,7 @@ getModelSummary <- function(modelPath, as_str) {
 
 # generate a chart; return a list with the generated notes + chart metadata
 generateChart <- function(audioPath, modelPath, level, chartType, title, artist, bpm, saveFormats,
-                          sampleStrat, topkK, toppP, beamSize, updateProgress = NULL) {
+                          sampleStrat, topkK, toppP, beamSize, placement_threshold = NULL, updateProgress = NULL) {
   if(sampleStrat == 'top-k') {
     sampleDescription <- sprintf("Top-k sampling with k = %0.f", topkK)
   } else if(sampleStrat == 'top-p') {
@@ -117,7 +117,12 @@ generateChart <- function(audioPath, modelPath, level, chartType, title, artist,
   }
   
   levelGroup <- hyper$CHART_LEVEL_BINS[[level]]
-  chartData[['threshold']] <- thresholds[[as.character(levelGroup)]]
+
+  if(is.null(placement_threshold)) {
+    chartData[['threshold']] <- thresholds[[as.character(levelGroup)]]
+  } else {
+    chartData[['threshold']] <- placement_threshold
+  }
  
   chartPlacements <- generate$generate_placements(placementModel, audioPath, chartType, 
                                                   as.integer(level), thresholds, inputSize)

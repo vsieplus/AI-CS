@@ -55,7 +55,7 @@ server <- function(input, output, session) {
     generateChart(input$audio_file$datapath, input$model, input$chart_level,
                   paste0('pump-', input$chart_type), input$song_title, input$artist, 
                   input$bpm, input$save_formats, input$sample_strat, input$topk_k, input$topp_p,
-                  input$beam_size, updateProgress)
+                  input$beam_size, input$placement_threshold, updateProgress)
   }, ignoreNULL = TRUE)
   
   # save the chart once it's been generated
