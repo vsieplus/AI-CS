@@ -14,7 +14,7 @@ from pathlib import Path
 from joblib import Memory
 
 from extract_audio_feats import extract_audio_feats, load_audio
-from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, CHART_LEVEL_BINS, SELECTION_VOCAB_SIZES)
+from hyper import (HOP_LENGTH, PAD_IDX, SEED, N_LEVELS, CHART_FRAME_RATE, CHART_LEVEL_BINS, SELECTION_VOCAB_SIZES)
 from step_tokenize import sequence_to_tensor, step_sequence_to_targets, step_features_to_str, step_index_to_features
 
 ABS_PATH = str(Path(__file__).parent.absolute())
@@ -373,12 +373,10 @@ class Chart:
 		self.chart_type = chart_attrs['stepstype']
 		assert(self.chart_type in CHART_PERMUTATIONS)
 
-		# concat one-hot encodings of chart_type/level
-		chart_type_one_hot = [0 if self.chart_type == 'pump-single' else 1
-							  for _ in range(N_CHART_TYPES)]
+		# concat one-hot encodings of chart level to placement inputs
 		level_one_hot = [0] * N_LEVELS
 		level_one_hot[self.level_bin - 1] = 1
-		self.chart_feats = chart_type_one_hot + level_one_hot
+		self.chart_feats = level_one_hot
 
 		self.permutation_type = permutation_type
 
@@ -386,8 +384,8 @@ class Chart:
 			(step_placement_frames, 
 			 step_sequence,
 			 delta_time) =  parse_notes(chart_attrs['notes'], self.chart_type, self.permutation_type, self.filetype)
-		except ValueError:
-			raise
+		except ValueError as e:
+			raise e
 
 		self.step_time_features = torch.tensor(delta_time)
 

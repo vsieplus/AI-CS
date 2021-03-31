@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hyper import PLACEMENT_THRESHOLDS
+from hyper import PLACEMENT_THRESHOLDS, HAMMING_POINTS
 
 def predict_placements(logits, levels, lengths, get_probs=False, thresholds=None):
     """
@@ -24,7 +24,7 @@ def predict_placements(logits, levels, lengths, get_probs=False, thresholds=None
     predictions = torch.zeros(logits.size(0), logits.size(1))
     for b in range(logits.size(0)):
         # from https://github.com/chrisdonahue/ddc/blob/master/infer/ddc_server.py
-        probs_smoothed = np.convolve(probs[b, :, 1].cpu().numpy(), np.hamming(5), 'same')
+        probs_smoothed = np.convolve(probs[b, :, 1].cpu().numpy(), np.hamming(HAMMING_POINTS), 'same')
         maxima = argrelextrema(probs_smoothed, np.greater_equal, order=1)[0]
 
         for i in maxima:

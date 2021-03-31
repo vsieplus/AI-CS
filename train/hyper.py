@@ -7,7 +7,6 @@ SEED = 1950
 
 PAD_IDX = -1
 
-N_CHART_TYPES = 2
 N_LEVELS = 10          # 28 levels -> 10 different ranges
 CHART_FRAME_RATE = 100 # 10 ms per (chart) frame
 
@@ -36,7 +35,7 @@ HOP_LENGTH = 512
 
 # actually bce loss, but use crossentropy for ignore_index functionality
 PLACEMENT_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)
-PLACEMENT_LR = 0.001
+PLACEMENT_LR = 0.0001
 
 PLACEMENT_AUDIO_PAD = 7  # how many frames of audio context to use during placement training
 PLACEMENT_CHANNELS = [3, 10]
@@ -57,8 +56,10 @@ MAX_CHARTLEVEL = 28
 PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (N_LEVELS - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD) for level in range(1, N_LEVELS + 1)]
 PLACEMENT_THRESHOLDS = {str(key + 1): val for key,val in enumerate(PLACEMENT_THRESHOLDS)}
 
+HAMMING_POINTS = 5 # for hamming window during placement prediction
+
 # chart_feats + output of cnn -> last filter size * pooled audio feats -> 160
-PLACEMENT_INPUT_SIZE = N_CHART_TYPES + N_LEVELS + 160
+PLACEMENT_INPUT_SIZE = N_LEVELS + 160
 NUM_PLACEMENT_LSTM_LAYERS = 2
 
 SRNN_CRITERION = CrossEntropyLoss(ignore_index=PAD_IDX)

@@ -9,11 +9,11 @@ from hyper import (NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SELECTION_VOCAB_SIZE
                    MAX_ACTIVE_ARROWS, NUM_ACTIVE_STATES, TIME_FEATURES)
 
 UCS_SSC_DICT = {
-    '.': '0',   # no step
-     'X': '1',   # normal step
-     'M': '2',   # start hold
-     'H': '0',   # hold (0 between '2' ... '3' in ssc)
-     'W': '3',   # release hold
+    '.': '0',    # no step
+    'X': '1',   # normal step
+    'M': '2',   # start hold
+    'H': '0',   # hold (0 between '2' ... '3' in ssc)
+    'W': '3',   # release hold
 }
 
 # symbols used in step representation

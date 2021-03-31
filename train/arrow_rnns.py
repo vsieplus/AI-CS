@@ -148,7 +148,7 @@ class PlacementCLSTM(nn.Module):
 # with addition of an attention-inspired mechanism - utilize hidden states from
 # placement model from the frame at which a particular step occurred
 
-# In particular, at timestep t, construct a weighted sum of the resulting hidden state from
+# In particular, at timestep t, construct a concatenation sum of the resulting hidden state from
 # the previous timestep, h_{t-1}, and the corresponding output from the clstm h_t':
 # Note that not all hidden states from the placement model will be used.
 
@@ -160,66 +160,70 @@ class PlacementCLSTM(nn.Module):
 # *in addition* to the previous steps in the chart it has seen via the rnn hidden state
 
 class SelectionRNN(nn.Module):
-    def __init__(self, num_lstm_layers, input_size, output_size, hidden_size, hidden_weight, dropout = 0.5):
+    def __init__(self, num_lstm_layers, input_size, output_size, hidden_size, use_conditioning=False, dropout=0.5):
         super().__init__()
         
         self.num_lstm_layers = num_lstm_layers
         self.hidden_size = hidden_size
 
-        # how much to pay attention to hidden state from this rnn vs. from the placement model
-        self.hidden_weight = hidden_weight
-        self.placement_weight = 1 - hidden_weight
-
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
+        # input -> step representation + additional features (e.g. size) + 
+        # clstm hidden state at current frame (if using conditioning)
+        input_size = input_size + hidden_size if use_conditioning else input_size
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_lstm_layers, dropout=dropout, batch_first=True)
 
         self.linear1 = nn.Linear(in_features=hidden_size, out_features=hidden_size)
         self.linear2 = nn.Linear(in_features=hidden_size, out_features=output_size)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
-    def compute_weighted_hidden(self, clstm_hidden, hidden, input_lengths):
-        # -> [num_lstm_layers, batch, hidden]
-        clstm_hidden = clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1)
+        self.use_conditioning = use_conditioning
 
-        # normalize clstm_hiddens to ranges of corresponding hiddens, then sum
-        for b in range(clstm_hidden.size(1)):
-            if input_lengths[b] == 0:
-                continue
+    # def compute_weighted_hidden(self, clstm_hidden, hidden, input_lengths):
+    #     # -> [num_lstm_layers, batch, hidden]
+    #     clstm_hidden = clstm_hidden.unsqueeze(0).repeat(self.num_lstm_layers, 1, 1)
 
-            min_clstm_hidden = min(clstm_hidden[0, b])
-            clstm_hidden_range = max(clstm_hidden[0, b]) - min_clstm_hidden
+    #     # normalize clstm_hiddens to ranges of corresponding hiddens, then sum
+    #     for b in range(clstm_hidden.size(1)):
+    #         if input_lengths[b] == 0:
+    #             continue
 
-            for layer in range(self.num_lstm_layers):
-                min_hidden = min(hidden[layer, b])
-                hidden_range = max(hidden[layer, b]) - min_hidden
+    #         min_clstm_hidden = min(clstm_hidden[0, b])
+    #         clstm_hidden_range = max(clstm_hidden[0, b]) - min_clstm_hidden
 
-                if clstm_hidden_range > 0:
-                    clstm_hidden[layer, b] = ((clstm_hidden[layer, b] - min_clstm_hidden) / clstm_hidden_range)
+    #         for layer in range(self.num_lstm_layers):
+    #             min_hidden = min(hidden[layer, b])
+    #             hidden_range = max(hidden[layer, b]) - min_hidden
 
-                if hidden_range > 0:            
-                    clstm_hidden[layer, b] = min_hidden + (clstm_hidden[layer, b] * hidden_range)
+    #             if clstm_hidden_range > 0:
+    #                 clstm_hidden[layer, b] = ((clstm_hidden[layer, b] - min_clstm_hidden) / clstm_hidden_range)
 
-        return self.hidden_weight * hidden + self.placement_weight * clstm_hidden
+    #             if hidden_range > 0:            
+    #                 clstm_hidden[layer, b] = min_hidden + (clstm_hidden[layer, b] * hidden_range)
+
+    #     return self.hidden_weight * hidden + self.placement_weight * clstm_hidden
 
     # step_input: [batch, 1, input_size]
     # clstm_hidden: [batch, hidden_size]
     # hidden, cell: [num_lstm_layers, batch, hidden_size]
     def forward(self, step_input, clstm_hidden, hidden, cell, input_lengths):
-        # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
-        if clstm_hidden is not None:
-            weighted_hidden = self.compute_weighted_hidden(clstm_hidden, hidden, input_lengths)
-        else:
-            weighted_hidden = hidden
+        # (old: if conditioning done via weighted sum of hidden states)
+        # # [2, batch, hidden] hidden_input at time t = a * h_{t-1} + b * h'_t', a is hidden_weight
+        # if clstm_hidden is not None:
+        #     weighted_hidden = self.compute_weighted_hidden(clstm_hidden, hidden, input_lengths)
+        # else:
+        #     weighted_hidden = hidden
+
+        # condition by concatenating hidden state from clstm from the corresponding frame
+        if self.use_conditioning and clstm_hidden is not None:
+            step_input = torch.cat((step_input, clstm_hidden.unsqueeze(1)), dim=-1)
 
         input_lengths_clamped = torch.clamp(input_lengths, min=1)
 
-        lstm_input_packed = pack_padded_sequence(step_input, input_lengths_clamped,
-                                                 batch_first=True, enforce_sorted=False)
+        lstm_input_packed = pack_padded_sequence(step_input, input_lengths_clamped, batch_first=True, enforce_sorted=False)
 
         # [batch, 1, hidden] (lstm_out: hidden states from last layer)
         # [2, batch, hidden] (hn/cn: final hidden cell states for both layers)
-        lstm_out_packed, (hn, cn) = self.lstm(lstm_input_packed, (weighted_hidden, cell))
+        lstm_out_packed, (hn, cn) = self.lstm(lstm_input_packed, (hidden, cell))
 
         lstm_out, _ = pad_packed_sequence(lstm_out_packed, batch_first=True)
 

@@ -13,8 +13,8 @@ from tqdm import trange
 
 import sys
 sys.path.append(os.path.join('..', 'train'))
-from hyper import (N_CHART_TYPES, N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES,
-                   SUMMARY_SAVE, SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE, CHART_LEVEL_BINS, TIME_FEATURES)
+from hyper import (N_LEVELS, CHART_FRAME_RATE, NUM_ARROW_STATES, SELECTION_INPUT_SIZES, SUMMARY_SAVE,
+                   SPECIAL_TOKENS_SAVE, THRESHOLDS_SAVE, CHART_LEVEL_BINS, TIME_FEATURES)
 from arrow_rnns import PlacementCLSTM, SelectionRNN
 from arrow_transformer import ArrowTransformer
 from extract_audio_feats import extract_audio_feats
@@ -281,13 +281,9 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level, th
     audio_feats = audio_feats.unsqueeze(0)
     n_audio_frames = audio_feats.size(2)
 
-    chart_feats = [0] * (N_CHART_TYPES + N_LEVELS)
-
-    if chart_type == 'pump-single':
-        chart_feats[0] = 1
-    else:
-        chart_feats[1] = 1
-
+    # TEMP (for aicsv1_1) [remove chart level (+2) after aicsv1_2 finishes training]
+    chart_feats = [0] * (2 + N_LEVELS)
+    chart_feats[0] = 1
     chart_feats[2 + (CHART_LEVEL_BINS[chart_level] - 1)] = 1
 
     # [batch=1, # chart features]
@@ -513,7 +509,7 @@ def get_gen_config(model_summary, model_dir, device=torch.device('cpu')):
 
         selection_model = SelectionRNN(model_summary['selection_lstm_layers'], model_summary['selection_input_size'], 
                                        model_summary['vocab_size'], model_summary['hidden_size'],
-                                       model_summary['selection_hidden_wt']).to(device)
+                                       model_summary['use_conditioning']).to(device)
 
         # loads the state dicts from the .bin files in model_dir/
         train_util.load_save(model_dir, False, placement_model, selection_model, False, device)
