@@ -1,7 +1,8 @@
 Short-term:
-    - fix step distribution filtering for new step representation
     - finish implementing training for transformer step selection model
-
+    - experiment with different holds representation
+    - train doubles model with aicsv1_1 dataset
+    
 Long-term:
     - brainstorm new representations of a 'stepchart'
     - experiment with ways to provide audio context during step selection

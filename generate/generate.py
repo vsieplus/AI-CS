@@ -213,8 +213,10 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
             chart_txt += f':{key}={val}\n'
         
         for i, (beatsplit, _, notes) in enumerate(chart_sections):
+            delay = 0 if i > 0 else -100
+
             if notes:
-                chart_txt += f':BPM={display_bpm}\n:Delay=-100\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
+                chart_txt += f':BPM={display_bpm}\n:Delay={delay}\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
                 chart_txt += '\n'.join(notes) + '\n'
 
         chart_fp = audio_filename + '.ucs'
@@ -407,7 +409,7 @@ def get_beam_candidates(selection_model, beams, beam_width, placement_hidden, st
 def expand_beam(logits, sequence, beam_score, beam_idx, hold_indices, num_arrows, hold_filters, empty_filters):
     # logits: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    #dist = filter_step_dist(dist, hold_indices[beam_idx], num_arrows, hold_filters, empty_filters)
+    dist = filter_step_dist(dist, hold_indices[beam_idx], num_arrows, hold_filters, empty_filters)
     expanded = []
     for j in range(logits.size(0)):
         new_seq = sequence + [j]
@@ -429,37 +431,35 @@ def save_best_beam(best, placement_times, chart_data, chart_type, special_tokens
         chart_data.append([placement_times[m - 1], token_str])
 
 def filter_steps(token_str, hold_indices):
-    # filter out step exceptions + track holds and steps
+    # track holds and steps
     new_token_str = ''
 
     for j in range(len(token_str)):
         token = token_str[j]
 
-        #  - cannot release 'W' if not currently held
-        if token == 'W':
-            if j in hold_indices:
-                hold_indices.remove(j)
-            else:
-                token = '.'
-        elif token == 'H' and j not in hold_indices:
-                token = '.'
+        if token == 'M':
+            hold_indices.add(j)
+        elif token == 'W':
+            hold_indices.remove(j)
              
         new_token_str += token
 
     return new_token_str
 
-def filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters):
+def filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters, filtering_logits=False):
     """Filter step distributions to exclude impossible step sequences; see get_filter_indices()"""
     # filter 1: The only possible next arrow states for a current hold is another hold 'H' or release 'W'
-    # filter 2: A hold note 'H' must follow a step 'X' or another hold 'H'
-    # filter 3: A release note 'W' must follow a step 'X' (treat as the hold's start) or another hold 'H'
+    # filter 2: A hold note 'H' must follow a hold start 'M' or another hold 'H'
+    # filter 3: A release note 'W' must follow a hold start 'M' or a hold 'H'
+    filter_val = 0.0 if not filtering_logits else float('-inf')
+
     for j in range(num_arrows):
         if j in hold_indices:
             # filter step combinations where the jth step is empty or a step (states = 0, 1, 2)
-            dist[hold_filters[str(j)]] = 0.0
+            dist[hold_filters[str(j)]] = filter_val
         else:
             # if arrow j neither preceded by 'H' or 'M', filter out holds (state = 3) and releases (state = 4)
-            dist[empty_filters[str(j)]] = 0.0
+            dist[empty_filters[str(j)]] = filter_val
 
     return dist
 
@@ -467,7 +467,7 @@ def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters,
     """predict the next step given model logits and a sampling strategy"""
     # shape: [vocab_size]
     dist = torch.nn.functional.softmax(logits, dim=-1)
-    #dist = filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters)
+    dist = filter_step_dist(dist, hold_indices, num_arrows, hold_filters, empty_filters)
     
     if sampling == 'top-k':
         # sample from top k probabilites + corresponding indices (sorted)    
@@ -478,8 +478,10 @@ def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters,
     elif sampling == 'top-p':
         # sample from smallest set that cumulatively exceeds probability 'p'
         # https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
+        logits = filter_step_dist(logits, hold_indices, num_arrows, hold_filters, empty_filters, filtering_logits=True)
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1)
+        sorted_dist = torch.nn.functional.softmax(sorted_logits, dim=-1)
+        cumulative_probs = torch.cumsum(sorted_dist, dim=-1)
 
         # Remove tokens with cumulative probability above the threshold
         sorted_indices_to_remove = cumulative_probs > p
@@ -492,7 +494,6 @@ def predict_step(logits, sampling, k, p, hold_indices, num_arrows, hold_filters,
         logits[indices_to_remove] = float('-inf')
 
         filtered_dist = torch.nn.functional.softmax(logits, dim=-1)
-        #filtered_dist = filter_step_dist(filtered_dist, hold_indices, num_arrows, hold_filters, empty_filters)
         pred_idx = torch.multinomial(filtered_dist, num_samples=1)              
     elif sampling == 'greedy':
         # take the most likely token
