@@ -93,7 +93,10 @@ def load_save(save_dir, fine_tune, placement_clstm, selection_model, use_transfo
     else:
         print(f'No saved {SRNN_SAVE} file found in {save_dir}, starting from base model')
 
-    checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
+    try:
+        checkpoint = torch.load(os.path.join(save_dir, CHECKPOINT_SAVE))
+    except FileNotFoundError:
+        return None
 
     # only restore epoch/best loss values when not fine_tuneing    
     # (i.e. give option to fine_tune some more on an already trained model)       

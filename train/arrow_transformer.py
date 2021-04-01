@@ -41,7 +41,7 @@ def get_masked_with_pad_tensor(size, src, trg, pad_token):
     return src_mask, trg_mask, look_ahead_mask
 
 class ArrowTransformer(nn.Module):
-    def __init__(self, embed_dim, vocab_size, num_layers, max_seq, pad_token, dropout=0.2):
+    def __init__(self, embed_dim, vocab_size, num_layers, max_seq, pad_token, conditioning=False, dropout=0.2):
         super().__init__()
 
         self.infer = False
@@ -55,7 +55,11 @@ class ArrowTransformer(nn.Module):
         self.Decoder = Encoder(self.num_layers, self.embed_dim, self.vocab_size, dropout, self.max_seq)
         self.fc = nn.Linear(self.embed_dim, self.vocab_size)
 
-    def forward(self, x, length=None):
+        self.conditioning = conditioning
+
+    def forward(self, x, clstm_hiddens, length=None):
+        # TODO implement conditioning with clstm_hiddens
+
         if not self.infer:
             _, _, mask = get_masked_with_pad_tensor(self.max_seq, x, x, self.pad_token)
             decoded, w = self.Decoder(x, mask)

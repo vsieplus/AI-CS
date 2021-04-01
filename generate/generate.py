@@ -282,9 +282,8 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level, th
     n_audio_frames = audio_feats.size(2)
 
     # TEMP (for aicsv1_1) [remove chart level (+2) after aicsv1_2 finishes training]
-    chart_feats = [0] * (2 + N_LEVELS)
-    chart_feats[0] = 1
-    chart_feats[2 + (CHART_LEVEL_BINS[chart_level] - 1)] = 1
+    chart_feats = [0] * (N_LEVELS)
+    chart_feats[(CHART_LEVEL_BINS[chart_level] - 1)] = 1
 
     # [batch=1, # chart features]
     chart_feats = torch.tensor(chart_feats, dtype=torch.long, device=device).unsqueeze(0)
@@ -346,7 +345,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
             delta_time = torch.tensor([placement_times[-1] - placement_times[-2]] if i > 1 else [0]).unsqueeze(0).unsqueeze(0).to(device)
-            placement_hidden = placement_hiddens[i] if conditioned and i > 0 else None
+            placement_hidden = placement_hiddens[i] if conditioned else None
             
             if sampling == 'beam-search':
                 if i == 0:

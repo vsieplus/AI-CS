@@ -212,7 +212,6 @@ class SelectionRNN(nn.Module):
         #     weighted_hidden = self.compute_weighted_hidden(clstm_hidden, hidden, input_lengths)
         # else:
         #     weighted_hidden = hidden
-
         # condition by concatenating hidden state from clstm from the corresponding frame
         if self.use_conditioning and clstm_hidden is not None:
             step_input = torch.cat((step_input, clstm_hidden.unsqueeze(1)), dim=-1)

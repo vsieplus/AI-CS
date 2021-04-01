@@ -240,13 +240,27 @@ def run_transformer_batch(transformer, optimizer, criterion, batch, device, clst
 
     do_condition = clstm_hiddens is not None
 
+    # [batch, seq_len]
+    step_targets = batch['step_targets'].to(device)
+    step_inputs = step_targets[:, :-1]
+    step_targets = step_targets[:, 1:]
+
+    # list of true lengths of each sequence
+    step_sequence_lengths = batch['step_sequence_lengths']
+
+    logits = transformer(step_inputs, clstm_hiddens)
+    loss = criterion(logits, step_targets)
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+
+    avg_loss = loss.item() / step_targets.size(1)
+
     total_accuracy = 0
-    total_loss = 0
+    for s in range(logits.size(1)):
+        total_accuracy += get_selection_accuracy(logits[:, s], step_targets[:, s], step_sequence_lengths, s)
 
-    # TODO ...
-
-    # avg_loss = total_loss / len(batch)
-    # avg_acc = total_accuracy / len(batch)
+    avg_acc = total_accuracy / logits.size(1)
 
     return avg_loss, avg_acc
 
@@ -283,7 +297,7 @@ def run_srnn_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens, do_t
     start_token = pad_sequence(start_token, batch_first=True, padding_value=PAD_IDX)
     hidden, cell = rnn.initStates(batch_size, device)
 
-    logits, (hidden, cell) = rnn(start_token, None, hidden, cell, torch.ones(batch_size, dtype=torch.long, device=device))
+    logits, (hidden, cell) = rnn(start_token, clstm_hiddens[:, 0], hidden, cell, torch.ones(batch_size, dtype=torch.long, device=device))
     loss = criterion(logits[:, 0], step_targets[:, 0])
     if do_train:
         loss.backward()
@@ -319,11 +333,8 @@ def run_srnn_batch(rnn, optimizer, criterion, batch, device, clstm_hiddens, do_t
             # [batch, 1, # step features] / [batch, hiddens] - feed clstm hiddens 1 by 1
             step_inputs = step_sequence[:, abs_step, :].unsqueeze(1)
             
-            if do_condition:
-                curr_clstm_hiddens = clstm_hiddens[:, abs_step]
-            else:
-                curr_clstm_hiddens = None
-
+            curr_clstm_hiddens = clstm_hiddens[:, abs_step + 1] if do_condition else None
+            
             # ones or zeros
             curr_lengths = torch.ones(batch_size, dtype=torch.long, device=device)
             curr_lengths[curr_seq_lengths <= step] = 0
@@ -403,10 +414,10 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
     if use_transformer:
         selection_model = ArrowTransformer(EMBED_DIM, dataset.vocab_size, NUM_TRANSFORMER_LAYERS, MAX_SEQ_LEN, 
-                                           PAD_IDX, TRANSFORMER_DROPOUT)
+                                           PAD_IDX, TRANSFORMER_DROPOUT, do_condition)
     else:
         selection_model = SelectionRNN(NUM_SELECTION_LSTM_LAYERS, SELECTION_INPUT_SIZES[dataset.chart_type], 
-                                       dataset.vocab_size, HIDDEN_SIZE, SELECTION_HIDDEN_WEIGHT).to(device)
+                                       dataset.vocab_size, HIDDEN_SIZE, do_condition).to(device)
     selection_optim = optim.Adam(selection_model.parameters(), lr=SELECTION_LR)
 
     # load model, optimizer states if resuming training
@@ -423,7 +434,7 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
     sub_logdir = datetime.datetime.now().strftime('%m_%d_%y_%H_%M')
   
     if load_checkpoint:
-        checkpoint = load_save(load_checkpoint, fine_tune, placement_clstm, selection_model, device)
+        checkpoint = load_save(load_checkpoint, fine_tune, placement_clstm, selection_model, use_transformer, device)
         if checkpoint:
             (start_epoch, start_epoch_batch, best_placement_valid_loss, best_placement_precision,
              best_selection_valid_loss, train_clstm, train_selection, sub_logdir) = checkpoint
@@ -590,7 +601,7 @@ def log_training_stats(writer, dataset, summary_json, conditioning, transformer)
         'hidden_size': HIDDEN_SIZE,
         'placement_unroll': PLACEMENT_UNROLLING_LEN,
         'selection_unroll': SELECTION_UNROLLING_LEN,
-        'selection_hidden_wt': SELECTION_HIDDEN_WEIGHT if conditioning else 0
+        'use_conditioning': conditioning
     }
 
     # add other dataset text values
