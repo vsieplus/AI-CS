@@ -213,7 +213,7 @@ def save_chart(chart_data, chart_type, chart_level, chart_format, display_bpm,
             chart_txt += f':{key}={val}\n'
         
         for i, (beatsplit, _, notes) in enumerate(chart_sections):
-            delay = 0 if i > 0 else -100
+            delay = 0 if i > 0 else 0
 
             if notes:
                 chart_txt += f':BPM={display_bpm}\n:Delay={delay}\n:Beat={BEATS_PER_MEASURE}\n:Split={beatsplit}\n'        
@@ -281,7 +281,6 @@ def generate_placements(placement_model, audio_file, chart_type, chart_level, th
     audio_feats = audio_feats.unsqueeze(0)
     n_audio_frames = audio_feats.size(2)
 
-    # TEMP (for aicsv1_1) [remove chart level (+2) after aicsv1_2 finishes training]
     chart_feats = [0] * (N_LEVELS)
     chart_feats[(CHART_LEVEL_BINS[chart_level] - 1)] = 1
 
@@ -345,7 +344,7 @@ def generate_steps(selection_model, placements, placement_hiddens, vocab_size, n
             placement_time = train_util.convert_melframe_to_secs(placement_melframe, sample_rate)
             placement_times.append(placement_time)
             delta_time = torch.tensor([placement_times[-1] - placement_times[-2]] if i > 1 else [0]).unsqueeze(0).unsqueeze(0).to(device)
-            placement_hidden = placement_hiddens[i] if conditioned else None
+            placement_hidden = placement_hiddens[i].unsqueeze(0) if conditioned else None
             
             if sampling == 'beam-search':
                 if i == 0:

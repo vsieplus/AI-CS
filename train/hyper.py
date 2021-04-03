@@ -56,7 +56,7 @@ MAX_CHARTLEVEL = 28
 PLACEMENT_THRESHOLDS = [MIN_THRESHOLD + ((level - 1) / (N_LEVELS - 1)) * (MAX_THRESHOLD - MIN_THRESHOLD) for level in range(1, N_LEVELS + 1)]
 PLACEMENT_THRESHOLDS = {str(key + 1): val for key,val in enumerate(PLACEMENT_THRESHOLDS)}
 
-HAMMING_POINTS = 5 # for hamming window during placement prediction
+HAMMING_POINTS = 10 # for hamming window during placement prediction
 
 # chart_feats + output of cnn -> last filter size * pooled audio feats -> 160
 PLACEMENT_INPUT_SIZE = N_LEVELS + 160

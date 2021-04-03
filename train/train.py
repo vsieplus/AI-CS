@@ -516,8 +516,8 @@ def run_models(train_iter, valid_iter, test_iter, num_epochs, device, save_dir, 
 
             # track best performing model(s) or save every epoch
             if early_stopping:
-                #better_placement = placement_valid_loss < best_placement_valid_loss
-                better_placement = placement_precision > best_placement_precision
+                better_placement = placement_valid_loss < best_placement_valid_loss
+                #better_placement = placement_precision > best_placement_precision
                 better_selection = selection_valid_loss < best_selection_valid_loss
 
                 if train_clstm:
