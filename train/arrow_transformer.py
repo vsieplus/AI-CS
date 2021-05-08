@@ -16,9 +16,9 @@ import torch.nn.functional as F
 
 def sequence_mask(lengths, max_length=None):
     if max_length is None:
-        max_length = length.max()
-    x = torch.arange(max_length, dtype=length.dtype, device=length.device)
-    return x.unsqueeze(0) < length.unsqueeze(1)
+        max_length = lengths.max()
+    x = torch.arange(max_length, dtype=lengths.dtype, device=lengths.device)
+    return x.unsqueeze(0) < lengths.unsqueeze(1)
 
 def get_masked_with_pad_tensor(size, src, trg, pad_token):
     src = src[:, None, None, :]
@@ -249,7 +249,7 @@ class Encoder(nn.Module):
         self.num_layers = num_layers
 
         self.embedding = nn.Embedding(num_embeddings=input_vocab_size, embedding_dim=dim_model)
-        self.pos_encoding = PositionEmbedding(self.dim_model, max_seq=max_len)
+        self.pos_encoding = PositionEmbedding(self.dim_model, max_seq_len=max_len)
 
         self.enc_layers = nn.ModuleList([
             EncoderLayer(dim_model, dropout, dim_model // 64, additional=False, max_seq=max_len)
