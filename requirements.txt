@@ -63,7 +63,7 @@ torchaudio==0.6.0a0+f17ae39
 tqdm
 Twisted==20.3.0
 tzlocal==2.1
-urllib3==1.25.10
+urllib3==1.26.5
 w3lib==1.21.0
 Werkzeug==1.0.1
 zope.interface==4.7.1
