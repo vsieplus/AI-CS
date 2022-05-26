@@ -61,7 +61,7 @@ toml
 torch==1.6.0
 torchaudio==0.6.0a0+f17ae39
 tqdm
-Twisted==20.3.0
+Twisted==22.4.0
 tzlocal==2.1
 urllib3==1.25.10
 w3lib==1.21.0
