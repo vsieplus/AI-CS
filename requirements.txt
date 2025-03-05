@@ -17,7 +17,7 @@ idna
 incremental==17.5.0
 iniconfig
 itemadapter
-Jinja2==2.11.3
+Jinja2==3.1.6
 joblib
 lxml
 Markdown==3.2.2
