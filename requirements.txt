@@ -58,7 +58,7 @@ tensorboard==2.3.0
 tensorboard-plugin-wit==1.7.0
 threadpoolctl
 toml 
-torch==1.6.0
+torch==2.4.0
 torchaudio==0.6.0a0+f17ae39
 tqdm
 Twisted==20.3.0
